@@ -756,11 +756,11 @@ client.on(Events.MessageCreate, async (message) => {
       const nicknamePrefix: number = user.dataValues.nicknamePrefix ?? 0;
       const nicknameSuffix: number = user.dataValues.nicknameSuffix ?? 0;
 
-      // 닉네임 자르기 로직 (prefix 또는 suffix가 설정되어 있을 때만)
-      if (nicknamePrefix > 0 || nicknameSuffix > 0) {
-        const prefix = nicknamePrefix > 0 ? displayName.slice(0, nicknamePrefix) : '';
-        const suffix = nicknameSuffix > 0 ? displayName.slice(-nicknameSuffix) : '';
-        displayName = prefix + suffix;
+      // 닉네임 자르기 로직: prefix 우선, 없으면 suffix 사용
+      if (nicknamePrefix > 0) {
+        displayName = displayName.slice(0, nicknamePrefix);
+      } else if (nicknameSuffix > 0) {
+        displayName = displayName.slice(-nicknameSuffix);
       }
 
       let parsedText = parseMessage(message.content);
