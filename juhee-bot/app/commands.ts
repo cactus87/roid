@@ -21,7 +21,7 @@ const Commands: SlashCommandBuilder | Omit<SlashCommandBuilder, "addSubcommand" 
     .addChannelOption(option =>
       option.setName('채널')
         .setDescription('tts를 재생할 채널')
-        .addChannelTypes(ChannelType.GuildText)
+        .addChannelTypes(ChannelType.GuildText, ChannelType.GuildVoice)
         .setRequired(true)),
 
   new SlashCommandBuilder()
