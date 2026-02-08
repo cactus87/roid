@@ -1,7 +1,8 @@
 {
   "permissions": {
     "allow": [
-      "Bash(npm info:*)"
+      "Bash(npm info:*)",
+      "Bash(ssh root@141.164.59.237 'cd /opt/tts-bot/juhee-bot && git log --oneline -5')"
     ]
   }
 }

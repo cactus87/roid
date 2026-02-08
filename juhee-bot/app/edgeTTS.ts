@@ -224,6 +224,7 @@ async function synthesizeWithRetry(
     try {
       const tts = new MsEdgeTTS();
       await tts.setMetadata(voice, OUTPUT_FORMAT.WEBM_24KHZ_16BIT_MONO_OPUS);
+      logger.debug(`🔧 Edge TTS 초기화 완료: voice=${voice}`);
 
       const prosodyOptions: { rate: string; pitch?: string } = {
         rate: `+${speed ?? 30}%`,
@@ -232,7 +233,9 @@ async function synthesizeWithRetry(
         prosodyOptions.pitch = pitch;
       }
 
+      logger.debug(`🔧 TTS 요청: text="${textData}", options=${JSON.stringify(prosodyOptions)}`);
       const { audioStream } = tts.toStream(textData, prosodyOptions);
+      logger.debug(`🔧 audioStream 생성 완료`);
 
       const chunks: Buffer[] = [];
       const buffer = await new Promise<Buffer>((resolve, reject) => {
@@ -254,17 +257,21 @@ async function synthesizeWithRetry(
         }, 15000);
 
         audioStream.on("data", (chunk: Buffer) => {
+          logger.debug(`🔧 audioStream data: ${chunk.length} bytes`);
           chunks.push(chunk);
         });
         audioStream.on("end", () => {
+          logger.debug(`🔧 audioStream end: total ${chunks.length} chunks`);
           clearTimeout(timeout);
           settle(() => resolve(Buffer.concat(chunks)));
         });
         audioStream.on("close", () => {
+          logger.debug(`🔧 audioStream close: total ${chunks.length} chunks`);
           clearTimeout(timeout);
           settle(() => resolve(Buffer.concat(chunks)));
         });
         audioStream.on("error", (err: Error) => {
+          logger.debug(`🔧 audioStream error: ${err.message}`);
           clearTimeout(timeout);
           settle(() => reject(err));
         });
