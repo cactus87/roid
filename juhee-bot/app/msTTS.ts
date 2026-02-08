@@ -1,41 +1,33 @@
 /**
- * @fileoverview Edge TTS 연동 (무료, API 키 불필요)
- * @description Microsoft Edge의 읽기 기능 API를 사용한 텍스트 음성 변환
- * @author forked from kevin1113dev's msTTS.ts, converted to Edge TTS
+ * @fileoverview Microsoft Azure Cognitive Services TTS 연동
+ * @description Azure Speech API를 사용한 텍스트 음성 변환
+ * @author kevin1113dev
  */
 
-import { MsEdgeTTS, OUTPUT_FORMAT } from "msedge-tts";
-import { PassThrough, Readable } from "stream";
+import sdk from "microsoft-cognitiveservices-speech-sdk";
+import { __dirname } from "./const.js";
+import { PassThrough } from "stream";
 import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
+import {
+  TextAnalyticsClient,
+  AzureKeyCredential,
+} from "@azure/ai-text-analytics";
 
 import dotenv from "dotenv";
 import { logger } from "./logger.js";
 
 dotenv.config();
 
+/** Azure Speech API 키 */
+const SPEECH_KEY: string = process.env.SPEECH_KEY ?? "";
+
+/** Azure Speech API 리전 */
+const SPEECH_REGION: string = process.env.SPEECH_REGION ?? "";
+
 /** 기본 TTS 음성 */
 const DEFAULT_VOICE: string = "SeoHyeonNeural";
-
-/** TTS 요청 큐 타입 */
-type TtsRequest = {
-  voice: string;
-  textData: string;
-  speed: number;
-  pitch: string | undefined;
-  resolve: (buffer: Buffer) => void;
-  reject: (error: Error) => void;
-};
-
-/** 전역 TTS 요청 큐 */
-const ttsQueue: TtsRequest[] = [];
-let isProcessingQueue = false;
-let lastRequestTime = 0;
-const MIN_REQUEST_INTERVAL = 500; // 최소 요청 간격 (ms)
-
-/** WebSocket 연결 풀 (음성별로 재사용) */
-const ttsConnectionPool = new Map<string, MsEdgeTTS>();
 
 type TtsCacheStats = {
   hits: number;
@@ -62,9 +54,11 @@ function getTtsCacheStats(): TtsCacheStats {
 }
 
 function getShardIdForStats(): string {
+  // discord.js ShardingManager가 환경변수로 SHARD_ID를 주는 케이스가 많음
   const shardId = process.env.SHARD_ID;
   if (shardId && shardId.trim().length > 0) return shardId.trim();
 
+  // 일부 환경에선 SHARDS="0,1" 같은 형태로 제공될 수 있음
   const shards = process.env.SHARDS;
   if (shards && shards.trim().length > 0) {
     const first = shards.split(",")[0]?.trim();
@@ -135,6 +129,7 @@ async function flushStatsToDisk() {
 }
 
 function scheduleStatsFlush() {
+  // 너무 자주 쓰지 않도록 최소 간격 + 디바운스
   const MIN_INTERVAL_MS = 5000;
   const DEBOUNCE_MS = 1000;
   const now = Date.now();
@@ -149,6 +144,10 @@ function scheduleStatsFlush() {
 
 /**
  * TTS 오디오 캐시 디렉토리
+ *
+ * @remarks
+ * - 기본값은 프로젝트 실행 경로 기준 `.ttsCache`
+ * - 환경변수 `TTS_CACHE_DIR`로 변경 가능
  */
 const TTS_CACHE_DIR: string = process.env.TTS_CACHE_DIR
   ? path.resolve(process.env.TTS_CACHE_DIR)
@@ -172,12 +171,22 @@ function ensureCacheDir() {
     fs.mkdirSync(TTS_CACHE_DIR, { recursive: true });
     cacheDirReady = true;
   } catch (e) {
+    // 캐시 디렉토리 생성 실패 시에도 TTS는 계속 동작해야 함
     logger.warn("⚠️ TTS 캐시 디렉토리 생성 실패:", e);
   }
 }
 
 function delay(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isRetriableErrorMessage(message: string): boolean {
+  const m = message.toLowerCase();
+  return (
+    m.includes("websocket error") ||
+    m.includes("internal server error") ||
+    m.includes("1011")
+  );
 }
 
 function bufferToStream(buffer: Buffer): PassThrough {
@@ -216,6 +225,7 @@ async function writeCacheAtomic(filePath: string, data: Buffer) {
   try {
     ensureCacheDir();
     if (!cacheDirReady) return;
+    // 이미 파일이 있으면 덮어쓰지 않음
     if (fs.existsSync(filePath)) return;
 
     const tmpPath = `${filePath}.tmp-${process.pid}-${Date.now()}`;
@@ -226,158 +236,9 @@ async function writeCacheAtomic(filePath: string, data: Buffer) {
   }
 }
 
-/**
- * WebSocket 연결 풀에서 TTS 인스턴스 가져오기 또는 생성
- */
-async function getTtsInstance(voice: string): Promise<MsEdgeTTS> {
-  const poolKey = voice;
-
-  let tts = ttsConnectionPool.get(poolKey);
-
-  if (!tts) {
-    tts = new MsEdgeTTS();
-    await tts.setMetadata(voice, OUTPUT_FORMAT.WEBM_24KHZ_16BIT_MONO_OPUS);
-    ttsConnectionPool.set(poolKey, tts);
-    logger.info(`🔧 새 TTS 인스턴스 생성: voice=${voice}`);
-  }
-
-  return tts;
-}
-
-/**
- * TTS 큐 처리 루프
- */
-async function processQueue() {
-  if (isProcessingQueue || ttsQueue.length === 0) {
-    return;
-  }
-
-  isProcessingQueue = true;
-  logger.info(`📋 TTS 큐 처리 시작 (대기: ${ttsQueue.length}개)`);
-
-  while (ttsQueue.length > 0) {
-    const request = ttsQueue.shift()!;
-
-    // Rate Limit 방지: 최소 간격 대기
-    const timeSinceLastRequest = Date.now() - lastRequestTime;
-    if (timeSinceLastRequest < MIN_REQUEST_INTERVAL) {
-      const delay = MIN_REQUEST_INTERVAL - timeSinceLastRequest;
-      logger.info(`⏱️ Rate Limit 방지 대기: ${delay}ms`);
-      await new Promise(resolve => setTimeout(resolve, delay));
-    }
-
-    try {
-      const buffer = await synthesizeDirectly(
-        request.voice,
-        request.textData,
-        request.speed,
-        request.pitch
-      );
-      lastRequestTime = Date.now();
-      request.resolve(buffer);
-    } catch (error) {
-      request.reject(error as Error);
-    }
-  }
-
-  isProcessingQueue = false;
-  logger.info(`✅ TTS 큐 처리 완료`);
-}
-
-/**
- * TTS 요청을 큐에 추가
- */
-function enqueueRequest(
-  voice: string,
-  textData: string,
-  speed: number,
-  pitch: string | undefined
-): Promise<Buffer> {
-  return new Promise((resolve, reject) => {
-    ttsQueue.push({ voice, textData, speed, pitch, resolve, reject });
-    logger.info(`➕ TTS 요청 큐 추가 (큐 크기: ${ttsQueue.length})`);
-    processQueue(); // 큐 처리 시작
-  });
-}
-
-/**
- * Edge TTS로 텍스트를 음성 버퍼로 직접 합성 (큐 처리용)
- */
-async function synthesizeDirectly(
-  voice: string,
-  textData: string,
-  speed: number,
-  pitch: string | undefined
-): Promise<Buffer> {
-  const tts = await getTtsInstance(voice);
-  logger.info(`🔧 TTS 요청: text="${textData}", voice=${voice}, speed=${speed}`);
-
-  const prosodyOptions: { rate: string; pitch?: string } = {
-    rate: `+${speed ?? 30}%`,
-  };
-  if (pitch && pitch !== "medium") {
-    prosodyOptions.pitch = pitch;
-  }
-
-  const { audioStream } = tts.toStream(textData, prosodyOptions);
-  logger.info(`🔧 audioStream 생성 완료`);
-
-  const chunks: Buffer[] = [];
-  const buffer = await new Promise<Buffer>((resolve, reject) => {
-    let settled = false;
-    const settle = (fn: () => void) => {
-      if (!settled) { settled = true; fn(); }
-    };
-
-    // 15초 타임아웃
-    const timeout = setTimeout(() => {
-      settle(() => {
-        if (chunks.length > 0) {
-          resolve(Buffer.concat(chunks));
-        } else {
-          reject(new Error("Edge TTS timeout: no audio data received"));
-        }
-      });
-    }, 15000);
-
-    audioStream.on("data", (chunk: Buffer) => {
-      logger.info(`🔧 audioStream data: ${chunk.length} bytes`);
-      chunks.push(chunk);
-    });
-    audioStream.on("end", () => {
-      logger.info(`🔧 audioStream end: total ${chunks.length} chunks`);
-      clearTimeout(timeout);
-      settle(() => resolve(Buffer.concat(chunks)));
-    });
-    audioStream.on("close", () => {
-      logger.info(`🔧 audioStream close: total ${chunks.length} chunks`);
-      clearTimeout(timeout);
-      settle(() => resolve(Buffer.concat(chunks)));
-    });
-    audioStream.on("error", (err: Error) => {
-      logger.info(`🔧 audioStream error: ${err.message}`);
-      clearTimeout(timeout);
-      settle(() => reject(err));
-    });
-  });
-
-  if (buffer.length === 0) {
-    // 연결이 손상되었을 수 있으므로 풀에서 제거
-    ttsConnectionPool.delete(voice);
-    throw new Error("Empty audio buffer from Edge TTS");
-  }
-
-  return buffer;
-}
-
-/**
- * Edge TTS로 텍스트를 음성 버퍼로 합성 (재시도 포함)
- */
-async function synthesizeWithRetry(
-  voice: string,
-  textData: string,
-  speed: number,
-  pitch: string | undefined,
+async function synthesizeSsmlToBufferWithRetry(
+  speechConfig: sdk.SpeechConfig,
+  ssml: string,
   maxRetries: number
 ): Promise<Buffer> {
   let attempt = 0;
@@ -385,17 +246,57 @@ async function synthesizeWithRetry(
   // eslint-disable-next-line no-constant-condition
   while (true) {
     try {
-      // 큐 기반 처리로 변경
-      const buffer = await enqueueRequest(voice, textData, speed, pitch);
+      const buffer = await new Promise<Buffer>((resolve, reject) => {
+        const synthesizer = new sdk.SpeechSynthesizer(speechConfig);
+        synthesizer.speakSsmlAsync(
+          ssml,
+          (result) => {
+            try {
+              synthesizer.close();
+              if (result.errorDetails) {
+                const errorMessage = result.errorDetails?.toString() || "";
+                const error = new Error(errorMessage);
+                (error as any).retriable = isRetriableErrorMessage(errorMessage);
+                reject(error);
+                return;
+              }
+              const audioData = result.audioData;
+              if (!audioData) {
+                reject(new Error("Empty audioData"));
+                return;
+              }
+              resolve(Buffer.from(audioData));
+            } catch (e) {
+              try {
+                synthesizer.close();
+              } catch {
+                // ignore
+              }
+              reject(e);
+            }
+          },
+          (error) => {
+            try {
+              synthesizer.close();
+            } catch {
+              // ignore
+            }
+            const errorMessage = error?.toString() || "";
+            const err = new Error(errorMessage);
+            (err as any).retriable = isRetriableErrorMessage(errorMessage);
+            reject(err);
+          }
+        );
+      });
+
       return buffer;
     } catch (e: any) {
+      const retriable = Boolean(e?.retriable);
       const message = e?.message?.toString?.() ?? String(e);
 
-      if (attempt < maxRetries) {
+      if (retriable && attempt < maxRetries) {
         attempt += 1;
-        logger.info(`⚠️ TTS 재시도 (${attempt}/${maxRetries})`);
-        // 연결 풀 초기화 (재시도 시 새 연결 생성)
-        ttsConnectionPool.delete(voice);
+        logger.debug(`⚠️ TTS 재시도 (${attempt}/${maxRetries})`);
         await delay(1000 * attempt);
         continue;
       }
@@ -406,44 +307,71 @@ async function synthesizeWithRetry(
   }
 }
 
+/** Azure Language API 키 (언어 감지용, 현재 미사용) */
+const LANGUAGE_KEY = process.env.LANGUAGE_KEY ?? "";
+
+/** Azure Language API 엔드포인트 (현재 미사용) */
+const LANGUAGE_ENDPOINT = process.env.LANGUAGE_ENDPOINT ?? "";
+
+/** 언어 분석 클라이언트 (현재 미사용) */
+const client = new TextAnalyticsClient(
+  LANGUAGE_ENDPOINT,
+  new AzureKeyCredential(LANGUAGE_KEY)
+);
+
 /**
- * Edge TTS를 사용하여 텍스트를 음성으로 변환
+ * Microsoft Azure TTS를 사용하여 텍스트를 음성으로 변환
  *
  * @param textData - 변환할 텍스트
  * @param callback - 오디오 스트림을 받을 콜백 함수
  * @param voiceName - 사용할 음성 이름 (기본값: SeoHyeonNeural)
  * @param speed - 속도 조절 (0-100, 기본값: 30)
  * @param pitch - 피치 조절 (x-low, low, medium, high, x-high 또는 Hz값)
+ * @param retryCount - 재시도 횟수 (내부 사용, 기본값: 0)
  *
  * @remarks
  * - 언어 자동 감지 (한국어, 일본어, 영어)
  * - 오류 발생 시 최대 2번 재시도
- * - WebM Opus 형식으로 출력
+ * - Ogg Opus 형식으로 출력
+ * - 재시도 간격: 1초, 2초 (점진적 증가)
  */
-async function edgeTTS(
+async function msTTS(
   textData: string,
   callback: Function,
   voiceName: string = DEFAULT_VOICE,
   speed: number = 30,
   pitch?: string,
+  retryCount: number = 0
 ) {
   const MAX_RETRIES = 2;
   const stats = getTtsCacheStats();
-
+  
   try {
     loadPersistedStatsOnce();
+
+    if (!SPEECH_KEY || !SPEECH_REGION) {
+      logger.error("Speech API credentials not configured");
+      if (typeof callback === 'function') {
+        try {
+          callback(null);
+        } catch (callbackError) {
+          logger.error("Error calling callback for missing credentials:", callbackError);
+        }
+      }
+      return;
+    }
+
     ensureCacheDir();
 
-    // Edge TTS는 매우 짧은 텍스트에서 빈 버퍼를 반환할 수 있음 (최소 길이 보장)
-    let processedText = textData.trim();
-    if (processedText.length < 2) {
-      processedText = processedText + " "; // 공백 추가
-      logger.debug(`⚠️ TTS 텍스트 너무 짧음 ("${textData}") - 공백 추가`);
-    }
+    const speechConfig = sdk.SpeechConfig.fromSubscription(
+      SPEECH_KEY,
+      SPEECH_REGION
+    );
 
     let language: string;
     let voice: string;
-    const detectedLanguage = (voiceName == 'HyunsuMultilingualNeural') ? 'ko' : quickLanguageDetect(processedText);
+    // const detectedLanguage = await recognizeLanguage(textData);
+    const detectedLanguage = (voiceName == 'HyunsuMultilingualNeural') ? 'ko' : quickLanguageDetect(textData);
 
     switch (detectedLanguage) {
       case "ko":
@@ -464,18 +392,32 @@ async function edgeTTS(
         break;
     }
 
+    speechConfig.speechSynthesisOutputFormat =
+      sdk.SpeechSynthesisOutputFormat.Ogg24Khz16BitMonoOpus;
+    speechConfig.speechSynthesisLanguage = language;
+    speechConfig.speechSynthesisVoiceName = voice;
+
+    const speechSynthesizer = new sdk.SpeechSynthesizer(speechConfig);
+
+    // SSML에 pitch 추가
+    const pitchAttr = pitch && pitch !== "medium" ? ` pitch="${pitch}"` : "";
+    const ssml = `<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xml:lang="${language}">
+    <voice name="${voice}">
+      <prosody rate="+${speed ?? 30}%"${pitchAttr}>${textData}</prosody>
+    </voice>
+  </speak>`;
     const cacheKey = sha256Hex(
       JSON.stringify({
         v: 3,
-        format: "Webm24Khz16BitMonoOpus",
+        format: "Ogg24Khz16BitMonoOpus",
         language,
         voice,
         speed,
         pitch: pitch ?? "medium",
-        textData: processedText
+        textData
       })
     );
-    const cacheFilePath = path.join(TTS_CACHE_DIR, `${cacheKey}.webm`);
+    const cacheFilePath = path.join(TTS_CACHE_DIR, `${cacheKey}.ogg`);
 
     // 캐시 히트
     if (cacheDirReady && (await isCacheValid(cacheFilePath))) {
@@ -498,11 +440,9 @@ async function edgeTTS(
       stats.misses += 1;
       scheduleStatsFlush();
       synthesisPromise = (async () => {
-        const buffer = await synthesizeWithRetry(
-          voice,
-          processedText,
-          speed,
-          pitch,
+        const buffer = await synthesizeSsmlToBufferWithRetry(
+          speechConfig,
+          ssml,
           MAX_RETRIES
         );
         await writeCacheAtomic(cacheFilePath, buffer);
@@ -528,6 +468,7 @@ async function edgeTTS(
       scheduleStatsFlush();
       throw e;
     } finally {
+      // 완료/실패 상관없이 in-flight 제거
       if (inFlightSynthesis.get(cacheKey) === synthesisPromise) {
         inFlightSynthesis.delete(cacheKey);
       }
@@ -539,6 +480,7 @@ async function edgeTTS(
     stats.errors += 1;
     scheduleStatsFlush();
 
+    // 합성 재시도는 synthesizeSsmlToBufferWithRetry에서 처리.
     if (typeof callback === "function") {
       try {
         callback(null);
@@ -550,11 +492,41 @@ async function edgeTTS(
 }
 
 /**
+ * Azure Language API를 사용한 언어 인식 함수 (현재 비활성화)
+ * API 호출 비용 절감을 위해 로컬 언어 감지 사용
+ */
+// async function recognizeLanguage(text: string): Promise<string> {
+//   try {
+//     if (recognizeOption && LANGUAGE_KEY && LANGUAGE_ENDPOINT) {
+//       const result: DetectLanguageResult = (await client.detectLanguage([text]))[0];
+//       if (!result.error) {
+//         logger.debug(`🌍 Detected language: ${result.primaryLanguage.iso6391Name}`);
+//         return result.primaryLanguage.iso6391Name;
+//       } else {
+//         logger.warn("Language detection failed, defaulting to Korean:", result.error);
+//         return 'ko';
+//       }
+//     } else {
+//       return 'ko';
+//     }
+//   } catch (error) {
+//     logger.error("Error in language recognition:", error);
+//     return 'ko';
+//   }
+// }
+
+/**
  * 빠른 로컬 언어 감지
  * API 호출 없이 정규식으로 언어 판별
- *
+ * 
  * @param text - 감지할 텍스트
  * @returns 언어 코드 ('ko', 'ja', 'en')
+ * 
+ * @remarks
+ * - 한글 문자 포함 시: 'ko'
+ * - 일본어 문자 포함 시: 'ja'
+ * - 영어 문자만 포함 시: 'en'
+ * - 그 외: 'ko' (기본값)
  */
 function quickLanguageDetect(text: string): string {
   const koreanRegex = /[ㄱ-ㅎ|ㅏ-ㅣ|가-힣]/;
@@ -564,7 +536,7 @@ function quickLanguageDetect(text: string): string {
   if (koreanRegex.test(text)) return "ko";
   if (japaneseRegex.test(text)) return "ja";
   if (englishRegex.test(text)) return "en";
-  return "ko";
+  return "ko"; // 기본값
 }
 
-export default edgeTTS;
+export default msTTS;

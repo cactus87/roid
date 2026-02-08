@@ -45,7 +45,7 @@ import {
 } from "@discordjs/voice";
 import Stream, { PassThrough } from "stream";
 
-import edgeTTS from "./edgeTTS.js";
+import msTTS from "./msTTS.js";
 import { RegisterUser, RegisterUserMsg } from "./dbFunction.js";
 import { JoinedServer, Servers, Users } from "./dbObject.js";
 import Action from "./action.js";
@@ -672,7 +672,7 @@ client.on(Events.MessageCreate, async (message) => {
       const pitch: string | undefined = user.dataValues.pitch;
 
       try {
-        await edgeTTS(
+        await msTTS(
           parsedText,
           (stream: PassThrough | null) => {
             if (!stream) {
