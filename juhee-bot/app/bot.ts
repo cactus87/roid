@@ -721,6 +721,10 @@ client.on(Events.MessageCreate, async (message) => {
     // 사용자가 봇과 같은 음성 채널에 있는지 확인
     const isUserInSameVoice = message.member.voice.channelId == botVoiceChannelId;
 
+    logger.info(
+      `📨 메시지 수신: [${message.guild.name}] ${message.author.username} | ch:${message.channelId} | tts:${ttsChannel} | botVoice:${botVoiceChannelId} | isTTS:${!!isTtsChannel} | isVoice:${!!isVoiceChannelChat} | sameVoice:${isUserInSameVoice} | isPlaying:${guildData.isPlayingTTS} | qLen:${guildData.ttsQueue.length}`
+    );
+
     if (
       (isTtsChannel || isVoiceChannelChat) &&
       (isUserInSameVoice || !voiceConnection)
