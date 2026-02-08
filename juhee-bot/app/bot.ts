@@ -579,14 +579,21 @@ client.on(Events.MessageCreate, async (message) => {
     if (!server) return;
 
     const ttsChannel: string | null = server.dataValues.ttsChannel;
-    if (!ttsChannel) return;
 
-    // TTS 채널이고 사용자가 같은 음성 채널에 있는지 확인
+    // 봇이 음성 채널에 연결되어 있는지 확인
+    const voiceConnection = getVoiceConnection(message.guildId);
+    const botVoiceChannelId = voiceConnection?.joinConfig.channelId;
+
+    // TTS 조건: (설정된 TTS 채널) 또는 (봇이 연결된 음성 채널의 채팅)
+    const isTtsChannel = ttsChannel && message.channelId == ttsChannel;
+    const isVoiceChannelChat = botVoiceChannelId && message.channelId == botVoiceChannelId;
+
+    // 사용자가 봇과 같은 음성 채널에 있는지 확인
+    const isUserInSameVoice = message.member.voice.channelId == botVoiceChannelId;
+
     if (
-      message.channelId == ttsChannel &&
-      (message.member.voice.channelId ==
-        getVoiceConnection(message.guildId)?.joinConfig.channelId ||
-        !getVoiceConnection(message.guildId))
+      (isTtsChannel || isVoiceChannelChat) &&
+      (isUserInSameVoice || !voiceConnection)
     ) {
       await RegisterUserMsg(message);
 
