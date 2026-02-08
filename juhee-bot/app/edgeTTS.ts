@@ -321,9 +321,16 @@ async function edgeTTS(
     loadPersistedStatsOnce();
     ensureCacheDir();
 
+    // Edge TTS는 매우 짧은 텍스트에서 빈 버퍼를 반환할 수 있음 (최소 길이 보장)
+    let processedText = textData.trim();
+    if (processedText.length < 2) {
+      processedText = processedText + " "; // 공백 추가
+      logger.debug(`⚠️ TTS 텍스트 너무 짧음 ("${textData}") - 공백 추가`);
+    }
+
     let language: string;
     let voice: string;
-    const detectedLanguage = (voiceName == 'HyunsuMultilingualNeural') ? 'ko' : quickLanguageDetect(textData);
+    const detectedLanguage = (voiceName == 'HyunsuMultilingualNeural') ? 'ko' : quickLanguageDetect(processedText);
 
     switch (detectedLanguage) {
       case "ko":
@@ -352,7 +359,7 @@ async function edgeTTS(
         voice,
         speed,
         pitch: pitch ?? "medium",
-        textData
+        textData: processedText
       })
     );
     const cacheFilePath = path.join(TTS_CACHE_DIR, `${cacheKey}.webm`);
@@ -380,7 +387,7 @@ async function edgeTTS(
       synthesisPromise = (async () => {
         const buffer = await synthesizeWithRetry(
           voice,
-          textData,
+          processedText,
           speed,
           pitch,
           MAX_RETRIES
