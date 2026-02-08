@@ -328,11 +328,14 @@ const LANGUAGE_KEY = process.env.LANGUAGE_KEY ?? "";
 /** Azure Language API 엔드포인트 (현재 미사용) */
 const LANGUAGE_ENDPOINT = process.env.LANGUAGE_ENDPOINT ?? "";
 
-/** 언어 분석 클라이언트 (현재 미사용) */
-const client = new TextAnalyticsClient(
-  LANGUAGE_ENDPOINT,
-  new AzureKeyCredential(LANGUAGE_KEY)
-);
+/** 언어 분석 클라이언트 (현재 미사용, LANGUAGE_KEY가 있을 때만 생성) */
+let client: TextAnalyticsClient | null = null;
+if (LANGUAGE_KEY && LANGUAGE_ENDPOINT) {
+  client = new TextAnalyticsClient(
+    LANGUAGE_ENDPOINT,
+    new AzureKeyCredential(LANGUAGE_KEY)
+  );
+}
 
 /**
  * Microsoft Azure TTS를 사용하여 텍스트를 음성으로 변환
