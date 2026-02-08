@@ -83,26 +83,32 @@ function getTTSStream(queueItem: TTSQueueItem): Promise<PassThrough | null> {
  */
 function waitForPlaybackEnd(audioPlayer: import("@discordjs/voice").AudioPlayer): Promise<void> {
   return new Promise<void>((resolve) => {
-    // 이미 Idle이면 바로 resolve
     if (audioPlayer.state.status === AudioPlayerStatus.Idle) {
       resolve();
       return;
     }
-    const cleanup = () => {
+    let resolved = false;
+    const done = () => {
+      if (resolved) return;
+      resolved = true;
+      clearTimeout(timeout);
       audioPlayer.removeListener('stateChange', onStateChange);
       audioPlayer.removeListener('error', onError);
+      resolve();
     };
     const onStateChange = (_oldState: any, newState: any) => {
-      if (newState.status === AudioPlayerStatus.Idle) {
-        cleanup();
-        resolve();
-      }
+      if (newState.status === AudioPlayerStatus.Idle) done();
     };
     const onError = (error: any) => {
       logger.error('❌ AudioPlayer 에러 (재생 대기 중):', error);
-      cleanup();
-      resolve();
+      done();
     };
+    // 30초 타임아웃 - 멈춘 경우 다음 큐로 진행
+    const timeout = setTimeout(() => {
+      logger.warn('⚠️ 재생 타임아웃 (30초) - 다음 큐 아이템으로 진행');
+      audioPlayer.stop();
+      done();
+    }, 30_000);
     audioPlayer.on('stateChange', onStateChange);
     audioPlayer.on('error', onError);
   });
@@ -725,14 +731,6 @@ client.on(Events.MessageCreate, async (message) => {
         where: { id: message.author.id },
       });
       if (!user) return;
-
-      // Buffering 상태에서 멈춘 경우 플레이어 재생성
-      if (
-        guildData.audioPlayer &&
-        guildData.audioPlayer.state.status === AudioPlayerStatus.Buffering
-      ) {
-        guildData.audioPlayer.stop();
-      }
 
       if (!guildData.audioPlayer) {
         guildData.audioPlayer = createNewAudioPlayer();
