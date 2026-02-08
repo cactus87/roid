@@ -1181,7 +1181,7 @@ function createAudioResourceFromStream(
   inputType: StreamType | undefined = undefined
 ) {
   const resource = createAudioResource(stream, {
-    inputType: inputType ?? StreamType.WebmOpus,
+    inputType: inputType ?? StreamType.OggOpus,
   });
   return resource;
 }
