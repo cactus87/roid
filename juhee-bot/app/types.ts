@@ -27,8 +27,6 @@ export type TTSQueueItem = {
   speed: number | null;
   /** 피치 */
   pitch: string | undefined;
-  /** 예상 재생 시간 (ms) */
-  estimatedDuration: number;
 };
 
 /**

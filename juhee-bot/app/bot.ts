@@ -59,28 +59,10 @@ import HttpServer from "./api.js";
 const guildDataList: GuildData[] = [];
 
 /**
- * 텍스트 길이와 속도를 기반으로 TTS 재생 예상 시간 계산 (ms)
- * @param textLength - 텍스트 글자 수
- * @param speed - 속도 (0~100, 기본값 50)
- * @returns 예상 재생 시간 (밀리초)
- */
-function calculateTTSDuration(textLength: number, speed: number | null): number {
-  const baseSpeed = speed ?? 50;
-  // 기본: 글자당 120ms (한국어 평균), 속도에 따라 조정
-  // speed 50 = 1.0배속, speed 100 = 2.0배속, speed 0 = 0.5배속
-  const speedMultiplier = 0.5 + (baseSpeed / 100);
-  const baseDuration = textLength * 120; // 글자당 120ms
-  const adjustedDuration = baseDuration / speedMultiplier;
-  // 최소 500ms, 최대 30초
-  return Math.max(500, Math.min(adjustedDuration, 30000));
-}
-
-/**
  * TTS 큐 처리 함수
- * @param guildData - 길드 데이터
+ * AudioPlayer의 Idle 이벤트를 감지해서 실제 재생 완료 후 다음 큐 처리
  */
 async function processTTSQueue(guildData: GuildData): Promise<void> {
-  // 이미 재생 중이거나 큐가 비어있으면 리턴
   if (guildData.isPlayingTTS || guildData.ttsQueue.length === 0) {
     return;
   }
@@ -104,29 +86,33 @@ async function processTTSQueue(guildData: GuildData): Promise<void> {
             "TTS 생성에 실패했습니다. 잠시 후 다시 시도해주세요."
           );
           guildData.isPlayingTTS = false;
-          processTTSQueue(guildData); // 다음 큐 처리
+          processTTSQueue(guildData);
           return;
         }
 
         if (!guildData.audioPlayer) {
           logger.warn(`⚠️ 오디오 플레이어 없음: 길드 ${guildData.guildId}`);
           guildData.isPlayingTTS = false;
-          processTTSQueue(guildData); // 다음 큐 처리
+          processTTSQueue(guildData);
           return;
         }
 
         try {
           const resource = createAudioResourceFromStream(stream);
-          guildData.audioPlayer.play(resource);
-          logger.info(
-            `🎵 TTS 재생: [길드 ${guildData.guildId}] ${queueItem.displayName} | "${queueItem.text}" | ${queueItem.voiceName} ${queueItem.speed}% | 예상 시간: ${queueItem.estimatedDuration}ms`
-          );
 
-          // 예상 재생 시간 + 버퍼(300ms) 후 다음 큐 처리
-          setTimeout(() => {
+          // 재생 완료 이벤트: Idle 상태가 되면 다음 큐 처리
+          const onIdle = () => {
+            guildData.audioPlayer?.removeListener(AudioPlayerStatus.Idle, onIdle);
+            logger.info(`✅ TTS 재생 완료: [길드 ${guildData.guildId}] "${queueItem.text}"`);
             guildData.isPlayingTTS = false;
             processTTSQueue(guildData);
-          }, queueItem.estimatedDuration + 300);
+          };
+          guildData.audioPlayer.on(AudioPlayerStatus.Idle, onIdle);
+
+          guildData.audioPlayer.play(resource);
+          logger.info(
+            `🎵 TTS 재생: [길드 ${guildData.guildId}] ${queueItem.displayName} | "${queueItem.text}" | ${queueItem.voiceName} ${queueItem.speed}%`
+          );
         } catch (error) {
           logger.error(
             `❌ 재생 실패: [길드 ${guildData.guildId}] ${queueItem.displayName}`,
@@ -134,7 +120,7 @@ async function processTTSQueue(guildData: GuildData): Promise<void> {
           );
           guildData.action.send("오디오 재생 중 오류가 발생했습니다.");
           guildData.isPlayingTTS = false;
-          processTTSQueue(guildData); // 다음 큐 처리
+          processTTSQueue(guildData);
         }
       },
       queueItem.voiceName ?? undefined,
@@ -148,7 +134,7 @@ async function processTTSQueue(guildData: GuildData): Promise<void> {
     );
     guildData.action.send("TTS 생성 중 오류가 발생했습니다.");
     guildData.isPlayingTTS = false;
-    processTTSQueue(guildData); // 다음 큐 처리
+    processTTSQueue(guildData);
   }
 }
 
@@ -773,14 +759,12 @@ client.on(Events.MessageCreate, async (message) => {
       const pitch: string | undefined = user.dataValues.pitch;
 
       // TTS 큐에 추가
-      const estimatedDuration = calculateTTSDuration(parsedText.length, speed);
       const queueItem: TTSQueueItem = {
         text: parsedText,
         displayName,
         voiceName,
         speed,
         pitch,
-        estimatedDuration,
       };
 
       guildData.ttsQueue.push(queueItem);
