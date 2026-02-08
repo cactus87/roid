@@ -10,36 +10,18 @@ import { PassThrough } from "stream";
 import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
-import { fileURLToPath } from "url";
 import {
   TextAnalyticsClient,
   AzureKeyCredential,
 } from "@azure/ai-text-analytics";
 
-import dotenv from "dotenv";
 import { logger } from "./logger.js";
-
-// __dirname 계산 (ESM 환경)
-const __filename = fileURLToPath(import.meta.url);
-const __dirname_local = path.dirname(__filename);
-
-// .env 파일 명시적 경로 지정 (샤드 프로세스에서도 작동)
-const envPath = path.join(__dirname_local, "../../.env");
-const dotenvResult = dotenv.config({ path: envPath });
-
-if (dotenvResult.error) {
-  logger.error(`[msTTS] .env 로드 실패: ${envPath}`, dotenvResult.error);
-} else {
-  logger.info(
-    `[msTTS] .env 로드 성공: ${envPath}, SPEECH_KEY=${process.env.SPEECH_KEY?.substring(0, 10)}..., SPEECH_REGION=${process.env.SPEECH_REGION}`
-  );
-}
-
-/** Azure Speech API 키 */
-const SPEECH_KEY: string = process.env.SPEECH_KEY ?? "";
-
-/** Azure Speech API 리전 */
-const SPEECH_REGION: string = process.env.SPEECH_REGION ?? "";
+import {
+  SPEECH_KEY,
+  SPEECH_REGION,
+  LANGUAGE_KEY,
+  LANGUAGE_ENDPOINT,
+} from "./config.js";
 
 /** 기본 TTS 음성 */
 const DEFAULT_VOICE: string = "SeoHyeonNeural";
@@ -321,12 +303,6 @@ async function synthesizeSsmlToBufferWithRetry(
     }
   }
 }
-
-/** Azure Language API 키 (언어 감지용, 현재 미사용) */
-const LANGUAGE_KEY = process.env.LANGUAGE_KEY ?? "";
-
-/** Azure Language API 엔드포인트 (현재 미사용) */
-const LANGUAGE_ENDPOINT = process.env.LANGUAGE_ENDPOINT ?? "";
 
 /** 언어 분석 클라이언트 (현재 미사용, LANGUAGE_KEY가 있을 때만 생성) */
 let client: TextAnalyticsClient | null = null;

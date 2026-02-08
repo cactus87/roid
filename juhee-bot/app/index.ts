@@ -5,26 +5,23 @@
  * @version 1.0.0
  */
 
-import dotenv from "dotenv";
-dotenv.config();
-
 import { ShardingManager } from "discord.js";
 import { __dirname } from "./const.js";
 import { logger } from "./logger.js";
 import path from "path";
 import fs from "node:fs";
 
-/** Discord 봇 토큰 */
-const TOKEN: string = process.env.TOKEN ?? "";
-/** Discord 애플리케이션 클라이언트 ID (봇 ID) */
-const CLIENT_ID: string = process.env.CLIENT_ID ?? "";
-/** 한국 디스코드 리스트 API 토큰 (선택 사항) */
-const KOREANBOTS_TOKEN: string = process.env.KOREANBOTS_TOKEN ?? "";
+// 환경 변수 로드 및 검증 (진입점에서 한 번만)
+import {
+  validateConfig,
+  DISCORD_TOKEN as TOKEN,
+  DISCORD_CLIENT_ID as CLIENT_ID,
+  KOREANBOTS_TOKEN,
+} from "./config.js";
 
-if (!TOKEN) {
-  logger.error(
-    "❌ Discord 봇 토큰이 설정되지 않았습니다. .env 파일을 확인하세요."
-  );
+try {
+  validateConfig();
+} catch (error) {
   process.exit(1);
 }
 
@@ -267,7 +264,7 @@ if (KOREANBOTS_TOKEN) {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
-              Authorization: KOREANBOTS_TOKEN,
+              Authorization: KOREANBOTS_TOKEN!,
             },
             body: JSON.stringify({
               servers: totalGuilds,
