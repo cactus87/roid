@@ -10,6 +10,7 @@ import { PassThrough } from "stream";
 import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
+import { fileURLToPath } from "url";
 import {
   TextAnalyticsClient,
   AzureKeyCredential,
@@ -18,7 +19,12 @@ import {
 import dotenv from "dotenv";
 import { logger } from "./logger.js";
 
-dotenv.config();
+// __dirname 계산 (ESM 환경)
+const __filename = fileURLToPath(import.meta.url);
+const __dirname_local = path.dirname(__filename);
+
+// .env 파일 명시적 경로 지정 (샤드 프로세스에서도 작동)
+dotenv.config({ path: path.join(__dirname_local, "../../.env") });
 
 /** Azure Speech API 키 */
 const SPEECH_KEY: string = process.env.SPEECH_KEY ?? "";
