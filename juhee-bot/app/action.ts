@@ -664,12 +664,7 @@ export default class Action {
 export function createEmbedMessage(title: string, description?: string): EmbedBuilder {
   const embed = new EmbedBuilder()
       .setColor("#9A8ED7")
-      .setTitle(title)
-      .setFooter({
-        text: "주희봇 ⓒ 2024. @kevin1113dev All Rights Reserved.",
-        iconURL:
-          "https://github.com/kevin1113-github/juhee-bot/blob/master/juhee-profile.png?raw=true",
-      });
+      .setTitle(title);
   if (description) {
     embed.setDescription(description);
   }
