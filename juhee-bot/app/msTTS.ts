@@ -24,7 +24,16 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname_local = path.dirname(__filename);
 
 // .env 파일 명시적 경로 지정 (샤드 프로세스에서도 작동)
-dotenv.config({ path: path.join(__dirname_local, "../../.env") });
+const envPath = path.join(__dirname_local, "../../.env");
+const dotenvResult = dotenv.config({ path: envPath });
+
+if (dotenvResult.error) {
+  logger.error(`[msTTS] .env 로드 실패: ${envPath}`, dotenvResult.error);
+} else {
+  logger.info(
+    `[msTTS] .env 로드 성공: ${envPath}, SPEECH_KEY=${process.env.SPEECH_KEY?.substring(0, 10)}..., SPEECH_REGION=${process.env.SPEECH_REGION}`
+  );
+}
 
 /** Azure Speech API 키 */
 const SPEECH_KEY: string = process.env.SPEECH_KEY ?? "";
