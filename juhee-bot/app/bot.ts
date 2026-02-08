@@ -88,13 +88,23 @@ function waitForPlaybackEnd(audioPlayer: import("@discordjs/voice").AudioPlayer)
       resolve();
       return;
     }
+    const cleanup = () => {
+      audioPlayer.removeListener('stateChange', onStateChange);
+      audioPlayer.removeListener('error', onError);
+    };
     const onStateChange = (_oldState: any, newState: any) => {
       if (newState.status === AudioPlayerStatus.Idle) {
-        audioPlayer.removeListener('stateChange', onStateChange);
+        cleanup();
         resolve();
       }
     };
+    const onError = (error: any) => {
+      logger.error('❌ AudioPlayer 에러 (재생 대기 중):', error);
+      cleanup();
+      resolve();
+    };
     audioPlayer.on('stateChange', onStateChange);
+    audioPlayer.on('error', onError);
   });
 }
 
@@ -166,6 +176,11 @@ process.on("unhandledRejection", (reason, promise) => {
 process.on("uncaughtException", (error) => {
   logger.error("💥 처리되지 않은 예외:", error);
   logger.error("💥 Exception Stack:", error.stack);
+  // EBML/스트림 에러는 비치명적이므로 프로세스를 죽이지 않음
+  if (error.message?.includes('EBML') || error.message?.includes('prism-media')) {
+    logger.warn("⚠️ 스트림 파싱 에러 (비치명적) - 프로세스 유지");
+    return;
+  }
   process.exit(1);
 });
 
