@@ -45,7 +45,7 @@ export type GuildData = {
   /** 액션 관리 인스턴스 */
   action: Action;
 
-  /** 30분 후 자동 퇴장을 위한 타임아웃 */
+  /** 240분 후 자동 퇴장을 위한 타임아웃 (메시지마다 리셋) */
   timeOut: NodeJS.Timeout | null;
 
   /** TTS 큐 */

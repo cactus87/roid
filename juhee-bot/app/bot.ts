@@ -794,7 +794,7 @@ client.on(Events.MessageCreate, async (message) => {
       // 큐 처리 시작
       processTTSQueue(guildData);
 
-      // 30분 후 자동으로 음성 채널에서 나가는 타임아웃 설정
+      // 240분 후 자동으로 음성 채널에서 나가는 타임아웃 설정 (메시지마다 리셋)
       if (guildData.timeOut) {
         clearTimeout(guildData.timeOut);
       }
@@ -814,7 +814,7 @@ client.on(Events.MessageCreate, async (message) => {
 
             await guildData?.action.send("tts가 종료되었습니다.");
             logger.info(
-              `⏱️ TTS 세션 타임아웃: 서버 '${message.guild.name}' (ID: ${message.guildId}) | 연결 해제됨`
+              `⏱️ TTS 세션 타임아웃 (240분): 서버 '${message.guild.name}' (ID: ${message.guildId}) | 연결 해제됨`
             );
           }
         } catch (error) {
@@ -823,7 +823,7 @@ client.on(Events.MessageCreate, async (message) => {
             error
           );
         }
-      }, 1800_000);
+      }, 14400_000);
       guildData.timeOut = timeOut;
     }
   } catch (error) {
