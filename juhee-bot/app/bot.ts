@@ -45,7 +45,7 @@ import {
 } from "@discordjs/voice";
 import Stream, { PassThrough } from "stream";
 
-import msTTS from "./msTTS.js";
+import edgeTTS from "./edgeTTS.js";
 import { RegisterUser, RegisterUserMsg } from "./dbFunction.js";
 import { JoinedServer, Servers, Users } from "./dbObject.js";
 import Action from "./action.js";
@@ -371,7 +371,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
         await guildData.action.editReply(`tts 채널이 해제되었습니다.`);
       }
 
-      // 현재 설정된 목소리 확인 명령
+      // 현재 설정 확인 명령
       if (interaction.commandName === "현재설정") {
         await guildData.action.deferReply(isEmpheral);
 
@@ -384,25 +384,36 @@ client.on(Events.InteractionCreate, async (interaction) => {
         }
 
         const ttsVoice: string = user.dataValues.ttsVoice ?? "SeoHyeonNeural";
-        const ttsName: string =
-          [
-            { name: "선히(여)", value: "SunHiNeural" },
-            { name: "인준(남)", value: "InJoonNeural" },
-            { name: "봉진(남)", value: "BongJinNeural" },
-            { name: "국민(남)", value: "GookMinNeural" },
-            // { name: '현수(남)', value: 'HyunsuNeural' },
-            { name: "지민(여)", value: "JiMinNeural" },
-            { name: "서현(여)", value: "SeoHyeonNeural" },
-            { name: "순복(여)", value: "SoonBokNeural" },
-            { name: "유진(여)", value: "YuJinNeural" },
-          ].find((kv) => kv.value === ttsVoice)?.name ?? "선히(여)";
+        const voiceNames = [
+          { name: "선히(여)", value: "SunHiNeural" },
+          { name: "인준(남)", value: "InJoonNeural" },
+          { name: "현수(남)", value: "HyunsuNeural" },
+          { name: "봉진(남)", value: "BongJinNeural" },
+          { name: "국민(남)", value: "GookMinNeural" },
+          { name: "지민(여)", value: "JiMinNeural" },
+          { name: "서현(여)", value: "SeoHyeonNeural" },
+          { name: "순복(여)", value: "SoonBokNeural" },
+          { name: "유진(여)", value: "YuJinNeural" },
+          { name: "현수(남) (다국어)", value: "HyunsuMultilingualNeural" },
+        ];
+        const ttsName: string = voiceNames.find((kv) => kv.value === ttsVoice)?.name ?? "서현(여)";
 
         const speed: number = user.dataValues.speed ?? 30;
-        await guildData.action.editReply(`현재 tts 설정:`, `목소리: \`${ttsName}\`\n 속도: \`${speed}\``);
+        const pitch: string = user.dataValues.pitch ?? "medium";
+        const pitchNames: Record<string, string> = {
+          "x-low": "매우 낮음", "low": "낮음", "medium": "보통", "high": "높음", "x-high": "매우 높음"
+        };
+        const pitchName: string = pitchNames[pitch] ?? pitch;
+        const readNickname: boolean = user.dataValues.readNickname ?? true;
+
+        await guildData.action.editReply(
+          `현재 tts 설정:`,
+          `목소리: \`${ttsName}\`\n피치: \`${pitchName}\`\n속도: \`${speed}\`\n닉네임 읽기: \`${readNickname ? "켜짐" : "꺼짐"}\``
+        );
       }
 
       // 목소리 설정 명령
-      if (interaction.commandName === "목소리설정") {
+      if (interaction.commandName === "목소리") {
         await guildData.action.deferReply(isEmpheral);
 
         const voice: string =
@@ -420,8 +431,27 @@ client.on(Events.InteractionCreate, async (interaction) => {
         await guildData.action.editReply(`목소리가 변경되었습니다.`);
       }
 
+      // 피치 설정 명령
+      if (interaction.commandName === "피치") {
+        await guildData.action.deferReply(isEmpheral);
+
+        const pitch: string =
+          interaction.options.getString("피치값") ?? "medium";
+
+        const user: DATA | null = await Users.findOne({
+          where: { id: interaction.user.id },
+        });
+        if (!user) {
+          await guildData.action.userNotRegistered();
+          return;
+        }
+
+        await user.update({ pitch: pitch });
+        await guildData.action.editReply(`피치가 변경되었습니다.`);
+      }
+
       // TTS 속도 설정 명령
-      if (interaction.commandName === "속도설정") {
+      if (interaction.commandName === "속도") {
         await guildData.action.deferReply(isEmpheral);
 
         const speed: number = interaction.options.getInteger("속도값") ?? 0;
@@ -436,6 +466,27 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
         await user.update({ speed: speed });
         await guildData.action.editReply(`속도가 변경되었습니다.`);
+      }
+
+      // 닉네임 읽기 설정 명령
+      if (interaction.commandName === "닉네임읽기") {
+        await guildData.action.deferReply(isEmpheral);
+
+        const enabled: boolean =
+          interaction.options.getBoolean("활성화") ?? true;
+
+        const user: DATA | null = await Users.findOne({
+          where: { id: interaction.user.id },
+        });
+        if (!user) {
+          await guildData.action.userNotRegistered();
+          return;
+        }
+
+        await user.update({ readNickname: enabled });
+        await guildData.action.editReply(
+          `닉네임 읽기가 ${enabled ? "활성화" : "비활성화"}되었습니다.`
+        );
       }
 
       // 음소거 명령
@@ -546,10 +597,18 @@ client.on(Events.MessageCreate, async (message) => {
 
       if (
         guildData.audioPlayer &&
-        guildData.audioPlayer.state.status == AudioPlayerStatus.Playing
+        guildData.audioPlayer.state.status === AudioPlayerStatus.Playing
       ) {
-        await guildData.action.reply("이미 tts가 재생중입니다.");
+        // 재생중이면 무시 (메시지 안 보냄 - 연속 채팅 시 스팸 방지)
         return;
+      }
+
+      // Buffering 상태에서 멈춘 경우 플레이어 재생성
+      if (
+        guildData.audioPlayer &&
+        guildData.audioPlayer.state.status === AudioPlayerStatus.Buffering
+      ) {
+        guildData.audioPlayer.stop();
       }
 
       if (!guildData.audioPlayer) {
@@ -571,14 +630,19 @@ client.on(Events.MessageCreate, async (message) => {
           `메시지가 너무 깁니다. ${TTS_LIMIT}자에서 재생이 제한됩니다.`
         );
       }
-      const parsedText = parseMessage(message.content);
-      const voiceName = user.dataValues.ttsVoice;
-      const speed = user.dataValues.speed;
       const displayName =
         message.member?.displayName || message.author.username;
+      const readNickname: boolean = user.dataValues.readNickname ?? true;
+      let parsedText = parseMessage(message.content);
+      if (readNickname) {
+        parsedText = `${displayName}, ${parsedText}`;
+      }
+      const voiceName = user.dataValues.ttsVoice;
+      const speed = user.dataValues.speed;
+      const pitch: string | undefined = user.dataValues.pitch;
 
       try {
-        await msTTS(
+        await edgeTTS(
           parsedText,
           (stream: PassThrough | null) => {
             if (!stream) {
@@ -603,7 +667,7 @@ client.on(Events.MessageCreate, async (message) => {
             }
 
             try {
-              const resource = createNewOggOpusAudioResource(stream);
+              const resource = createAudioResourceFromStream(stream);
               guildData.audioPlayer.play(resource);
               logger.info(
                 `🎵 TTS: [${message.guild.name}] ${displayName} (${
@@ -619,7 +683,8 @@ client.on(Events.MessageCreate, async (message) => {
             }
           },
           voiceName,
-          speed
+          speed,
+          pitch
         );
       } catch (e) {
         logger.error(
@@ -1075,18 +1140,18 @@ function createNewAudioPlayer() {
 }
 
 /**
- * Ogg Opus 오디오 리소스 생성
+ * WebM Opus 오디오 리소스 생성
  *
  * @param stream - 오디오 스트림
- * @param inputType - 스트림 타입 (기본값: OggOpus)
+ * @param inputType - 스트림 타입 (기본값: WebmOpus)
  * @returns AudioResource 인스턴스
  */
-function createNewOggOpusAudioResource(
+function createAudioResourceFromStream(
   stream: Stream.Readable,
   inputType: StreamType | undefined = undefined
 ) {
   const resource = createAudioResource(stream, {
-    inputType: inputType ?? StreamType.OggOpus,
+    inputType: inputType ?? StreamType.WebmOpus,
   });
   return resource;
 }

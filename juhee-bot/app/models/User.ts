@@ -31,5 +31,14 @@ export default (sequelize: Sequelize) => {
       type: DataTypes.INTEGER,
       allowNull: true,
     },
+    pitch: {
+      type: DataTypes.STRING,
+      allowNull: true,
+    },
+    readNickname: {
+      type: DataTypes.BOOLEAN,
+      allowNull: true,
+      defaultValue: true,
+    },
   });
 };

@@ -157,3 +157,6 @@ bin
 .pm2.log
 DEPLOYMENT.md
 SHARDING.md
+# TTS Cache
+.ttsCache/
+logs-prod/
