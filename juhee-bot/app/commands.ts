@@ -79,7 +79,19 @@ const Commands: SlashCommandBuilder | Omit<SlashCommandBuilder, "addSubcommand" 
     .addBooleanOption(option =>
       option.setName('활성화')
         .setDescription('닉네임 읽기 활성화/비활성화')
-        .setRequired(true)),
+        .setRequired(true))
+    .addIntegerOption(option =>
+      option.setName('앞글자')
+        .setDescription('닉네임 앞에서 몇 글자 읽을지 (0=읽지않음, 기본값=전체)')
+        .setMinValue(0)
+        .setMaxValue(4)
+        .setRequired(false))
+    .addIntegerOption(option =>
+      option.setName('뒷글자')
+        .setDescription('닉네임 뒤에서 몇 글자 읽을지 (0=읽지않음, 기본값=전체)')
+        .setMinValue(0)
+        .setMaxValue(4)
+        .setRequired(false)),
 
   new SlashCommandBuilder()
     .setName('현재설정')

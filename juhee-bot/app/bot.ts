@@ -474,6 +474,8 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
         const enabled: boolean =
           interaction.options.getBoolean("활성화") ?? true;
+        const prefix: number | null = interaction.options.getInteger("앞글자");
+        const suffix: number | null = interaction.options.getInteger("뒷글자");
 
         const user: DATA | null = await Users.findOne({
           where: { id: interaction.user.id },
@@ -483,10 +485,21 @@ client.on(Events.InteractionCreate, async (interaction) => {
           return;
         }
 
-        await user.update({ readNickname: enabled });
-        await guildData.action.editReply(
-          `닉네임 읽기가 ${enabled ? "활성화" : "비활성화"}되었습니다.`
-        );
+        const updateData: any = { readNickname: enabled };
+        if (prefix !== null) updateData.nicknamePrefix = prefix;
+        if (suffix !== null) updateData.nicknameSuffix = suffix;
+
+        await user.update(updateData);
+
+        let message = `닉네임 읽기가 ${enabled ? "활성화" : "비활성화"}되었습니다.`;
+        if (enabled && (prefix !== null || suffix !== null)) {
+          const prefixText = prefix !== null ? `앞 ${prefix}글자` : '';
+          const suffixText = suffix !== null ? `뒤 ${suffix}글자` : '';
+          const separator = prefix !== null && suffix !== null ? ' + ' : '';
+          message += `\n닉네임: ${prefixText}${separator}${suffixText}`;
+        }
+
+        await guildData.action.editReply(message);
       }
 
       // 음소거 명령
@@ -637,11 +650,21 @@ client.on(Events.MessageCreate, async (message) => {
           `메시지가 너무 깁니다. ${TTS_LIMIT}자에서 재생이 제한됩니다.`
         );
       }
-      const displayName =
+      let displayName =
         message.member?.displayName || message.author.username;
       const readNickname: boolean = user.dataValues.readNickname ?? true;
+      const nicknamePrefix: number = user.dataValues.nicknamePrefix ?? 0;
+      const nicknameSuffix: number = user.dataValues.nicknameSuffix ?? 0;
+
+      // 닉네임 자르기 로직
+      if (readNickname && (nicknamePrefix > 0 || nicknameSuffix > 0)) {
+        const prefix = nicknamePrefix > 0 ? displayName.slice(0, nicknamePrefix) : '';
+        const suffix = nicknameSuffix > 0 ? displayName.slice(-nicknameSuffix) : '';
+        displayName = prefix + suffix;
+      }
+
       let parsedText = parseMessage(message.content);
-      if (readNickname) {
+      if (readNickname && displayName) {
         parsedText = `${displayName}, ${parsedText}`;
       }
       const voiceName = user.dataValues.ttsVoice;

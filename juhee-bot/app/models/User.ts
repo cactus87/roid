@@ -40,5 +40,15 @@ export default (sequelize: Sequelize) => {
       allowNull: true,
       defaultValue: true,
     },
+    nicknamePrefix: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+      defaultValue: 0,
+    },
+    nicknameSuffix: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+      defaultValue: 0,
+    },
   });
 };
