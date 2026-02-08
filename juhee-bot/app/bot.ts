@@ -711,14 +711,6 @@ client.on(Events.MessageCreate, async (message) => {
       });
       if (!user) return;
 
-      if (
-        guildData.audioPlayer &&
-        guildData.audioPlayer.state.status === AudioPlayerStatus.Playing
-      ) {
-        // 재생중이면 무시 (메시지 안 보냄 - 연속 채팅 시 스팸 방지)
-        return;
-      }
-
       // Buffering 상태에서 멈춘 경우 플레이어 재생성
       if (
         guildData.audioPlayer &&
