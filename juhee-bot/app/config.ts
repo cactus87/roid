@@ -13,7 +13,8 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname_local = path.dirname(__filename);
 
 // .env 파일 명시적 경로 지정 (샤드 프로세스에서도 작동)
-const envPath = path.join(__dirname_local, "../.env");
+// 빌드 후 .cache/app/config.js → ../../.env
+const envPath = path.join(__dirname_local, "../../.env");
 const dotenvResult = dotenv.config({ path: envPath });
 
 if (dotenvResult.error) {
