@@ -18,6 +18,25 @@ dotenv.config();
 /** 기본 TTS 음성 */
 const DEFAULT_VOICE: string = "SeoHyeonNeural";
 
+/** TTS 요청 큐 타입 */
+type TtsRequest = {
+  voice: string;
+  textData: string;
+  speed: number;
+  pitch: string | undefined;
+  resolve: (buffer: Buffer) => void;
+  reject: (error: Error) => void;
+};
+
+/** 전역 TTS 요청 큐 */
+const ttsQueue: TtsRequest[] = [];
+let isProcessingQueue = false;
+let lastRequestTime = 0;
+const MIN_REQUEST_INTERVAL = 500; // 최소 요청 간격 (ms)
+
+/** WebSocket 연결 풀 (음성별로 재사용) */
+const ttsConnectionPool = new Map<string, MsEdgeTTS>();
+
 type TtsCacheStats = {
   hits: number;
   misses: number;
@@ -208,6 +227,150 @@ async function writeCacheAtomic(filePath: string, data: Buffer) {
 }
 
 /**
+ * WebSocket 연결 풀에서 TTS 인스턴스 가져오기 또는 생성
+ */
+async function getTtsInstance(voice: string): Promise<MsEdgeTTS> {
+  const poolKey = voice;
+
+  let tts = ttsConnectionPool.get(poolKey);
+
+  if (!tts) {
+    tts = new MsEdgeTTS();
+    await tts.setMetadata(voice, OUTPUT_FORMAT.WEBM_24KHZ_16BIT_MONO_OPUS);
+    ttsConnectionPool.set(poolKey, tts);
+    logger.info(`🔧 새 TTS 인스턴스 생성: voice=${voice}`);
+  }
+
+  return tts;
+}
+
+/**
+ * TTS 큐 처리 루프
+ */
+async function processQueue() {
+  if (isProcessingQueue || ttsQueue.length === 0) {
+    return;
+  }
+
+  isProcessingQueue = true;
+  logger.info(`📋 TTS 큐 처리 시작 (대기: ${ttsQueue.length}개)`);
+
+  while (ttsQueue.length > 0) {
+    const request = ttsQueue.shift()!;
+
+    // Rate Limit 방지: 최소 간격 대기
+    const timeSinceLastRequest = Date.now() - lastRequestTime;
+    if (timeSinceLastRequest < MIN_REQUEST_INTERVAL) {
+      const delay = MIN_REQUEST_INTERVAL - timeSinceLastRequest;
+      logger.info(`⏱️ Rate Limit 방지 대기: ${delay}ms`);
+      await new Promise(resolve => setTimeout(resolve, delay));
+    }
+
+    try {
+      const buffer = await synthesizeDirectly(
+        request.voice,
+        request.textData,
+        request.speed,
+        request.pitch
+      );
+      lastRequestTime = Date.now();
+      request.resolve(buffer);
+    } catch (error) {
+      request.reject(error as Error);
+    }
+  }
+
+  isProcessingQueue = false;
+  logger.info(`✅ TTS 큐 처리 완료`);
+}
+
+/**
+ * TTS 요청을 큐에 추가
+ */
+function enqueueRequest(
+  voice: string,
+  textData: string,
+  speed: number,
+  pitch: string | undefined
+): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    ttsQueue.push({ voice, textData, speed, pitch, resolve, reject });
+    logger.info(`➕ TTS 요청 큐 추가 (큐 크기: ${ttsQueue.length})`);
+    processQueue(); // 큐 처리 시작
+  });
+}
+
+/**
+ * Edge TTS로 텍스트를 음성 버퍼로 직접 합성 (큐 처리용)
+ */
+async function synthesizeDirectly(
+  voice: string,
+  textData: string,
+  speed: number,
+  pitch: string | undefined
+): Promise<Buffer> {
+  const tts = await getTtsInstance(voice);
+  logger.info(`🔧 TTS 요청: text="${textData}", voice=${voice}, speed=${speed}`);
+
+  const prosodyOptions: { rate: string; pitch?: string } = {
+    rate: `+${speed ?? 30}%`,
+  };
+  if (pitch && pitch !== "medium") {
+    prosodyOptions.pitch = pitch;
+  }
+
+  const { audioStream } = tts.toStream(textData, prosodyOptions);
+  logger.info(`🔧 audioStream 생성 완료`);
+
+  const chunks: Buffer[] = [];
+  const buffer = await new Promise<Buffer>((resolve, reject) => {
+    let settled = false;
+    const settle = (fn: () => void) => {
+      if (!settled) { settled = true; fn(); }
+    };
+
+    // 15초 타임아웃
+    const timeout = setTimeout(() => {
+      settle(() => {
+        if (chunks.length > 0) {
+          resolve(Buffer.concat(chunks));
+        } else {
+          reject(new Error("Edge TTS timeout: no audio data received"));
+        }
+      });
+    }, 15000);
+
+    audioStream.on("data", (chunk: Buffer) => {
+      logger.info(`🔧 audioStream data: ${chunk.length} bytes`);
+      chunks.push(chunk);
+    });
+    audioStream.on("end", () => {
+      logger.info(`🔧 audioStream end: total ${chunks.length} chunks`);
+      clearTimeout(timeout);
+      settle(() => resolve(Buffer.concat(chunks)));
+    });
+    audioStream.on("close", () => {
+      logger.info(`🔧 audioStream close: total ${chunks.length} chunks`);
+      clearTimeout(timeout);
+      settle(() => resolve(Buffer.concat(chunks)));
+    });
+    audioStream.on("error", (err: Error) => {
+      logger.info(`🔧 audioStream error: ${err.message}`);
+      clearTimeout(timeout);
+      settle(() => reject(err));
+    });
+  });
+
+  if (buffer.length === 0) {
+    // 연결이 손상되었을 수 있으므로 풀에서 제거
+    ttsConnectionPool.delete(voice);
+    throw new Error("Empty audio buffer from Edge TTS");
+  }
+
+  return buffer;
+}
+
+/**
  * Edge TTS로 텍스트를 음성 버퍼로 합성 (재시도 포함)
  */
 async function synthesizeWithRetry(
@@ -222,74 +385,17 @@ async function synthesizeWithRetry(
   // eslint-disable-next-line no-constant-condition
   while (true) {
     try {
-      const tts = new MsEdgeTTS();
-      await tts.setMetadata(voice, OUTPUT_FORMAT.WEBM_24KHZ_16BIT_MONO_OPUS);
-      logger.info(`🔧 Edge TTS 초기화 완료: voice=${voice}`);
-
-      const prosodyOptions: { rate: string; pitch?: string } = {
-        rate: `+${speed ?? 30}%`,
-      };
-      if (pitch && pitch !== "medium") {
-        prosodyOptions.pitch = pitch;
-      }
-
-      logger.info(`🔧 TTS 요청: text="${textData}", options=${JSON.stringify(prosodyOptions)}`);
-      const { audioStream } = tts.toStream(textData, prosodyOptions);
-      logger.info(`🔧 audioStream 생성 완료`);
-
-      const chunks: Buffer[] = [];
-      const buffer = await new Promise<Buffer>((resolve, reject) => {
-        let settled = false;
-        const settle = (fn: () => void) => {
-          if (!settled) { settled = true; fn(); }
-        };
-
-        // 15초 타임아웃 (Edge TTS WebSocket 응답이 안 올 때 대비)
-        const timeout = setTimeout(() => {
-          settle(() => {
-            try { tts.close(); } catch { /* ignore */ }
-            if (chunks.length > 0) {
-              resolve(Buffer.concat(chunks));
-            } else {
-              reject(new Error("Edge TTS timeout: no audio data received"));
-            }
-          });
-        }, 15000);
-
-        audioStream.on("data", (chunk: Buffer) => {
-          logger.info(`🔧 audioStream data: ${chunk.length} bytes`);
-          chunks.push(chunk);
-        });
-        audioStream.on("end", () => {
-          logger.info(`🔧 audioStream end: total ${chunks.length} chunks`);
-          clearTimeout(timeout);
-          settle(() => resolve(Buffer.concat(chunks)));
-        });
-        audioStream.on("close", () => {
-          logger.info(`🔧 audioStream close: total ${chunks.length} chunks`);
-          clearTimeout(timeout);
-          settle(() => resolve(Buffer.concat(chunks)));
-        });
-        audioStream.on("error", (err: Error) => {
-          logger.info(`🔧 audioStream error: ${err.message}`);
-          clearTimeout(timeout);
-          settle(() => reject(err));
-        });
-      });
-
-      try { tts.close(); } catch { /* ignore */ }
-
-      if (buffer.length === 0) {
-        throw new Error("Empty audio buffer from Edge TTS");
-      }
-
+      // 큐 기반 처리로 변경
+      const buffer = await enqueueRequest(voice, textData, speed, pitch);
       return buffer;
     } catch (e: any) {
       const message = e?.message?.toString?.() ?? String(e);
 
       if (attempt < maxRetries) {
         attempt += 1;
-        logger.debug(`⚠️ TTS 재시도 (${attempt}/${maxRetries})`);
+        logger.info(`⚠️ TTS 재시도 (${attempt}/${maxRetries})`);
+        // 연결 풀 초기화 (재시도 시 새 연결 생성)
+        ttsConnectionPool.delete(voice);
         await delay(1000 * attempt);
         continue;
       }
