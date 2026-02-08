@@ -59,67 +59,42 @@ import HttpServer from "./api.js";
 const guildDataList: GuildData[] = [];
 
 /**
- * TTS 한 건을 재생하고 완료될 때까지 기다리는 Promise
+ * msTTS 콜백을 Promise로 감싸서 스트림을 반환
  */
-function playTTSItem(guildData: GuildData, queueItem: TTSQueueItem): Promise<void> {
-  return new Promise<void>((resolve) => {
+function getTTSStream(queueItem: TTSQueueItem): Promise<PassThrough | null> {
+  return new Promise<PassThrough | null>((resolve) => {
     msTTS(
       queueItem.text,
       (stream: PassThrough | null) => {
-        if (!stream) {
-          logger.warn(
-            `⚠️ TTS 실패: [길드 ${guildData.guildId}] ${queueItem.displayName} | "${queueItem.text}"`
-          );
-          guildData.action.send(
-            "TTS 생성에 실패했습니다. 잠시 후 다시 시도해주세요."
-          );
-          resolve();
-          return;
-        }
-
-        if (!guildData.audioPlayer) {
-          logger.warn(`⚠️ 오디오 플레이어 없음: 길드 ${guildData.guildId}`);
-          resolve();
-          return;
-        }
-
-        try {
-          const resource = createAudioResourceFromStream(stream);
-
-          // stateChange로 Playing → Idle 전환 감지
-          const onStateChange = (_oldState: any, newState: any) => {
-            if (newState.status === AudioPlayerStatus.Idle) {
-              guildData.audioPlayer?.removeListener('stateChange', onStateChange);
-              logger.info(`✅ TTS 재생 완료: [길드 ${guildData.guildId}] "${queueItem.text}"`);
-              resolve();
-            }
-          };
-          guildData.audioPlayer.on('stateChange', onStateChange);
-
-          guildData.audioPlayer.play(resource);
-          logger.info(
-            `🎵 TTS 재생: [길드 ${guildData.guildId}] ${queueItem.displayName} | "${queueItem.text}" | ${queueItem.voiceName} ${queueItem.speed}%`
-          );
-        } catch (error) {
-          logger.error(
-            `❌ 재생 실패: [길드 ${guildData.guildId}] ${queueItem.displayName}`,
-            error
-          );
-          guildData.action.send("오디오 재생 중 오류가 발생했습니다.");
-          resolve();
-        }
+        resolve(stream);
       },
       queueItem.voiceName ?? undefined,
       queueItem.speed ?? undefined,
       queueItem.pitch
     ).catch((e) => {
-      logger.error(
-        `❌ TTS 오류: [길드 ${guildData.guildId}] ${queueItem.displayName} | "${queueItem.text}"`,
-        e
-      );
-      guildData.action.send("TTS 생성 중 오류가 발생했습니다.");
-      resolve();
+      logger.error(`❌ TTS 생성 오류: "${queueItem.text}"`, e);
+      resolve(null);
     });
+  });
+}
+
+/**
+ * 오디오 재생 완료까지 대기하는 Promise
+ */
+function waitForPlaybackEnd(audioPlayer: import("@discordjs/voice").AudioPlayer): Promise<void> {
+  return new Promise<void>((resolve) => {
+    // 이미 Idle이면 바로 resolve
+    if (audioPlayer.state.status === AudioPlayerStatus.Idle) {
+      resolve();
+      return;
+    }
+    const onStateChange = (_oldState: any, newState: any) => {
+      if (newState.status === AudioPlayerStatus.Idle) {
+        audioPlayer.removeListener('stateChange', onStateChange);
+        resolve();
+      }
+    };
+    audioPlayer.on('stateChange', onStateChange);
   });
 }
 
@@ -128,7 +103,7 @@ function playTTSItem(guildData: GuildData, queueItem: TTSQueueItem): Promise<voi
  */
 async function processTTSQueue(guildData: GuildData): Promise<void> {
   if (guildData.isPlayingTTS) {
-    return; // 이미 큐 루프가 돌고 있음
+    return;
   }
 
   guildData.isPlayingTTS = true;
@@ -138,7 +113,36 @@ async function processTTSQueue(guildData: GuildData): Promise<void> {
     logger.info(
       `📋 TTS 큐 처리: [길드 ${guildData.guildId}] "${queueItem.displayName}" | 큐 남은 개수: ${guildData.ttsQueue.length}`
     );
-    await playTTSItem(guildData, queueItem);
+
+    // 1. TTS 스트림 생성 (완료까지 대기)
+    const stream = await getTTSStream(queueItem);
+    if (!stream) {
+      logger.warn(`⚠️ TTS 실패: [길드 ${guildData.guildId}] ${queueItem.displayName}`);
+      guildData.action.send("TTS 생성에 실패했습니다. 잠시 후 다시 시도해주세요.");
+      continue;
+    }
+
+    if (!guildData.audioPlayer) {
+      logger.warn(`⚠️ 오디오 플레이어 없음: 길드 ${guildData.guildId}`);
+      continue;
+    }
+
+    // 2. 재생 시작
+    try {
+      const resource = createAudioResourceFromStream(stream);
+      guildData.audioPlayer.play(resource);
+      logger.info(
+        `🎵 TTS 재생: [길드 ${guildData.guildId}] ${queueItem.displayName} | "${queueItem.text}" | ${queueItem.voiceName} ${queueItem.speed}%`
+      );
+    } catch (error) {
+      logger.error(`❌ 재생 실패: [길드 ${guildData.guildId}] ${queueItem.displayName}`, error);
+      guildData.action.send("오디오 재생 중 오류가 발생했습니다.");
+      continue;
+    }
+
+    // 3. 재생 완료까지 대기
+    await waitForPlaybackEnd(guildData.audioPlayer);
+    logger.info(`✅ TTS 재생 완료: [길드 ${guildData.guildId}] "${queueItem.text}"`);
   }
 
   guildData.isPlayingTTS = false;
