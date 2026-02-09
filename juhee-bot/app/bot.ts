@@ -601,8 +601,15 @@ client.on(Events.InteractionCreate, async (interaction) => {
         }
 
         const updateData: any = { readNickname: enabled };
-        if (prefix !== null) updateData.nicknamePrefix = prefix;
-        if (suffix !== null) updateData.nicknameSuffix = suffix;
+
+        // 앞글자 설정 시 뒷글자 0으로, 뒷글자 설정 시 앞글자 0으로 초기화
+        if (prefix !== null) {
+          updateData.nicknamePrefix = prefix;
+          updateData.nicknameSuffix = 0;
+        } else if (suffix !== null) {
+          updateData.nicknamePrefix = 0;
+          updateData.nicknameSuffix = suffix;
+        }
 
         await user.update(updateData);
 
