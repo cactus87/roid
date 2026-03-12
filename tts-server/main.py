@@ -38,7 +38,7 @@ VOICE_PRESETS: dict[str, str] = {
     "child":        "A cute and innocent child voice around 5-7 years old, high-pitched with a lisp, cheerful and playful tone, slightly clumsy pronunciation",
     "grandma":      "A warm and gentle elderly woman voice in her 70s, soft and caring tone, slow and deliberate pace, slightly raspy with age",
     "rocker":       "A raspy and powerful male rock singer voice in his 30s, aggressive and intense tone, raw vocal texture with slight growl, loud and rebellious attitude",
-    "gangster":     "A deep and intimidating male voice in his 40s, gruff and threatening tone, slow deliberate speech with menacing pauses, rough and authoritative",
+    "gangster":     "A deep and intimidating male voice in his 40s, sharp and commanding tone, moderate pace with strong emphasis, clear and powerful projection",
     "otaku":        "A nasally and excitable young male voice in his 20s, fast-paced and enthusiastic, high energy with awkward social tone, nerdy and passionate",
     "anime_girl":   "A very high-pitched cute female voice in her teens, exaggerated cheerful intonation, sweet and bubbly with dramatic emotional shifts, kawaii style",
     "anime_boy":    "A bright and confident young male voice in his late teens, heroic and determined tone, energetic with dramatic flair, shounen protagonist style",
@@ -75,7 +75,6 @@ tts_model = Qwen3TTSModel.from_pretrained(
     "Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign",
     device_map="cuda" if torch.cuda.is_available() else "cpu",
     dtype=torch.bfloat16,
-    attn_implementation="flash_attention_2",
 )
 print("✅ 모델 로드 완료")
 
@@ -126,8 +125,13 @@ async def synthesize(request: Request):
     # instruct 프롬프트 구성 (음성 프리셋 + 속도 접미사)
     instruct = VOICE_PRESETS[voice_id] + speed_to_instruct(speed)
 
+    # voice_id별 고정 시드 → 일관된 음색 유지
+    voice_seed = hash(voice_id) & 0x7FFFFFFF  # voice_id마다 고유 시드
+
     # GPU 직렬화: 동시에 여러 요청이 와도 순차 처리 (동기 호출)
     async with _tts_lock:
+        torch.manual_seed(voice_seed)
+        torch.cuda.manual_seed(voice_seed)
         result = tts_model.generate_voice_design(
             text=text,
             language="Auto",

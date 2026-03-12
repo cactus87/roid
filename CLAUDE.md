@@ -65,7 +65,7 @@ juhee-bot/
 ### tts-server/main.py
 | 심볼 | 타입 | 설명 |
 |------|------|------|
-| `VOICE_PRESETS` | `dict[str, str]` | voice_id → 영어 instruct 프롬프트 (6개) |
+| `VOICE_PRESETS` | `dict[str, str]` | voice_id → 영어 instruct 프롬프트 (16개: 기본 6 + 캐릭터 10) |
 | `PITCH_SEMITONES` | `dict[str, int]` | pitch 이름 → 반음 수 |
 | `tts_model` | `Qwen3TTSModel` | 모델 싱글턴 (서버 시작 시 로드) |
 | `_tts_lock` | `asyncio.Lock` | GPU 직렬화용 Lock |
@@ -127,7 +127,7 @@ venv\Scripts\python.exe -m uvicorn main:app --host 0.0.0.0 --port 5002
 | `/나가` | 음성 채널 퇴장 |
 | `/채널설정` | TTS 채널 지정 |
 | `/채널해제` | TTS 채널 해제 |
-| `/목소리` | 유저별 TTS 음성 선택 (female_a/b/c, male_a/b/c) |
+| `/목소리` | 유저별 TTS 음성 선택 (기본 6종 + 캐릭터 10종: child/grandma/rocker/gangster/otaku/anime_girl/anime_boy/game_hero/game_villain/narrator) |
 | `/피치` | 유저별 음높이 (x-low/low/medium/high/x-high) |
 | `/속도` | 유저별 말하기 속도 (0-100) |
 | `/닉네임읽기` | 닉네임 읽기 on/off + 앞/뒤 글자 수 |
@@ -165,6 +165,7 @@ TTS_SERVER_URL=http://<로컬PC공인IP>:5002
 - **uvicorn Form 인코딩 버그**: `Form(...)` 파라미터로 한국어 받으면 latin-1로 깨짐
   → 반드시 `Request` 객체로 raw bytes 받아 `decode("utf-8")` 직접 파싱
 - **instruct 프롬프트는 영어만**: 한국어 instruct → 외계어 출력
+- **instruct에 rough/raspy/slow/pauses 등 극단적 묘사 주의**: 잡음·늘어짐 유발, 깔끔한 톤 위주로 작성
 - **이중 모델 로드 금지**: 서버 실행 중 동일 모델 다른 프로세스로 로드 시 VRAM 오류
 - **디버그/테스트는 API 호출만**: curl 등 HTTP 요청으로만 테스트
 - 커맨드 변경 시 반드시 `npm run updateCommands` 실행
