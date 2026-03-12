@@ -25,9 +25,8 @@ if (dotenvResult.error) {
 export const DISCORD_TOKEN = process.env.TOKEN;
 export const DISCORD_CLIENT_ID = process.env.CLIENT_ID;
 
-// Azure Speech SDK 설정 (필수)
-export const SPEECH_KEY = process.env.SPEECH_KEY;
-export const SPEECH_REGION = process.env.SPEECH_REGION;
+// 로컬 TTS 서버 설정
+export const TTS_SERVER_URL = process.env.TTS_SERVER_URL ?? "http://localhost:5002";
 
 // Azure Language API 설정 (선택)
 export const LANGUAGE_KEY = process.env.LANGUAGE_KEY;
@@ -55,19 +54,11 @@ export function validateConfig(): void {
     errors.push("CLIENT_ID (Discord 클라이언트 ID)");
   }
 
-  if (!SPEECH_KEY) {
-    errors.push("SPEECH_KEY (Azure Speech API 키)");
-  }
-
-  if (!SPEECH_REGION) {
-    errors.push("SPEECH_REGION (Azure Speech 리전)");
-  }
-
   if (errors.length > 0) {
     const errorMessage = `필수 환경 변수가 설정되지 않았습니다:\n- ${errors.join("\n- ")}`;
     logger.error(`[config] ${errorMessage}`);
     throw new Error(errorMessage);
   }
 
-  logger.info(`[config] 환경 변수 검증 완료 (SPEECH_REGION=${SPEECH_REGION})`);
+  logger.info(`[config] 환경 변수 검증 완료 (TTS_SERVER_URL=${TTS_SERVER_URL})`);
 }

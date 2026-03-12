@@ -35,16 +35,12 @@ const Commands: SlashCommandBuilder | Omit<SlashCommandBuilder, "addSubcommand" 
       option.setName('목소리')
         .setDescription('목소리')
         .addChoices(
-          { name: '선히(여)', value: 'SunHiNeural' },
-          { name: '인준(남)', value: 'InJoonNeural' },
-          { name: '현수(남)', value: 'HyunsuNeural' },
-          { name: '봉진(남)', value: 'BongJinNeural' },
-          { name: '국민(남)', value: 'GookMinNeural' },
-          { name: '지민(여)', value: 'JiMinNeural' },
-          { name: '서현(여)', value: 'SeoHyeonNeural' },
-          { name: '순복(여)', value: 'SoonBokNeural' },
-          { name: '유진(여)', value: 'YuJinNeural' },
-          { name: '현수(남) (다국어 지원)', value: 'HyunsuMultilingualNeural' },
+          { name: '여성 A (기본)', value: 'female_a' },
+          { name: '여성 B (밝음)', value: 'female_b' },
+          { name: '여성 C (뉴스)', value: 'female_c' },
+          { name: '남성 A (기본)', value: 'male_a' },
+          { name: '남성 B (친근)', value: 'male_b' },
+          { name: '남성 C (내레이터)', value: 'male_c' },
         )
         .setRequired(true)),
 
