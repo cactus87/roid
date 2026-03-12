@@ -35,12 +35,22 @@ const Commands: SlashCommandBuilder | Omit<SlashCommandBuilder, "addSubcommand" 
       option.setName('목소리')
         .setDescription('목소리')
         .addChoices(
-          { name: '여성 A (기본)', value: 'female_a' },
+          { name: '여성 A (차분)', value: 'female_a' },
           { name: '여성 B (밝음)', value: 'female_b' },
           { name: '여성 C (뉴스)', value: 'female_c' },
-          { name: '남성 A (기본)', value: 'male_a' },
+          { name: '남성 A (차분)', value: 'male_a' },
           { name: '남성 B (친근)', value: 'male_b' },
-          { name: '남성 C (내레이터)', value: 'male_c' },
+          { name: '남성 C (중후)', value: 'male_c' },
+          { name: '🧒 아이', value: 'child' },
+          { name: '👵 할머니', value: 'grandma' },
+          { name: '🎸 락커', value: 'rocker' },
+          { name: '😎 조폭', value: 'gangster' },
+          { name: '🤓 오타쿠', value: 'otaku' },
+          { name: '🌸 애니 소녀', value: 'anime_girl' },
+          { name: '⚔️ 애니 소년', value: 'anime_boy' },
+          { name: '🛡️ 게임 영웅', value: 'game_hero' },
+          { name: '🦹 게임 악당', value: 'game_villain' },
+          { name: '📖 나레이터', value: 'narrator' },
         )
         .setRequired(true)),
 

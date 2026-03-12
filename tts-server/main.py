@@ -27,12 +27,24 @@ CACHE_DIR.mkdir(exist_ok=True)
 
 # 음성 프리셋: voice_id → VoiceDesign instruct 프롬프트
 VOICE_PRESETS: dict[str, str] = {
+    # 기본 음성
     "female_a": "A calm and clear female voice in her 20s, friendly and stable tone, moderate speaking pace",
     "female_b": "A bright and energetic female voice in her 20s, expressive and cheerful speech style",
     "female_c": "A female news anchor voice in her 30s, professional and precise pronunciation",
     "male_a":   "A calm and deep male voice in his 30s, trustworthy and gentle tone",
     "male_b":   "A relaxed and natural male voice in his 20s, friendly and casual speech style",
     "male_c":   "A deep and mature male voice in his 40s, clear and weighty narration style",
+    # 캐릭터 음성
+    "child":        "A cute and innocent child voice around 5-7 years old, high-pitched with a lisp, cheerful and playful tone, slightly clumsy pronunciation",
+    "grandma":      "A warm and gentle elderly woman voice in her 70s, soft and caring tone, slow and deliberate pace, slightly raspy with age",
+    "rocker":       "A raspy and powerful male rock singer voice in his 30s, aggressive and intense tone, raw vocal texture with slight growl, loud and rebellious attitude",
+    "gangster":     "A deep and intimidating male voice in his 40s, gruff and threatening tone, slow deliberate speech with menacing pauses, rough and authoritative",
+    "otaku":        "A nasally and excitable young male voice in his 20s, fast-paced and enthusiastic, high energy with awkward social tone, nerdy and passionate",
+    "anime_girl":   "A very high-pitched cute female voice in her teens, exaggerated cheerful intonation, sweet and bubbly with dramatic emotional shifts, kawaii style",
+    "anime_boy":    "A bright and confident young male voice in his late teens, heroic and determined tone, energetic with dramatic flair, shounen protagonist style",
+    "game_hero":    "A strong and commanding male voice in his 30s, noble and courageous tone, clear and powerful projection, epic fantasy hero with unwavering resolve",
+    "game_villain": "A sinister and elegant male voice in his 40s, cold and calculating tone, smooth yet threatening delivery, dark charisma with subtle menace",
+    "narrator":     "A rich and resonant male voice in his 50s, authoritative and captivating storytelling tone, measured pace with dramatic emphasis, documentary narrator style",
 }
 
 # 피치: 반음(semitone) 단위

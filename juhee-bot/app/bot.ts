@@ -499,15 +499,15 @@ client.on(Events.InteractionCreate, async (interaction) => {
         }
 
         const ttsVoice: string = user.dataValues.ttsVoice ?? "female_a";
-        const voiceNames = [
-          { name: "여성 A (기본)", value: "female_a" },
-          { name: "여성 B (밝음)", value: "female_b" },
-          { name: "여성 C (뉴스)", value: "female_c" },
-          { name: "남성 A (기본)", value: "male_a" },
-          { name: "남성 B (친근)", value: "male_b" },
-          { name: "남성 C (내레이터)", value: "male_c" },
-        ];
-        const ttsName: string = voiceNames.find((kv) => kv.value === ttsVoice)?.name ?? "여성 A (기본)";
+        const voiceNames: Record<string, string> = {
+          female_a: "여성 A (차분)", female_b: "여성 B (밝음)", female_c: "여성 C (뉴스)",
+          male_a: "남성 A (차분)", male_b: "남성 B (친근)", male_c: "남성 C (중후)",
+          child: "🧒 아이", grandma: "👵 할머니", rocker: "🎸 락커",
+          gangster: "😎 조폭", otaku: "🤓 오타쿠", anime_girl: "🌸 애니 소녀",
+          anime_boy: "⚔️ 애니 소년", game_hero: "🛡️ 게임 영웅",
+          game_villain: "🦹 게임 악당", narrator: "📖 나레이터",
+        };
+        const ttsName: string = voiceNames[ttsVoice] ?? "여성 A (차분)";
 
         const speed: number = user.dataValues.speed ?? 30;
         const pitch: string = user.dataValues.pitch ?? "medium";
