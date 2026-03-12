@@ -63,8 +63,10 @@ tts_model = Qwen3TTSModel.from_pretrained(
     "Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign",
     device_map="cuda" if torch.cuda.is_available() else "cpu",
     dtype=torch.bfloat16,
+    attn_implementation="flash_attention_2",
 )
 print("✅ 모델 로드 완료")
+
 
 # ── FastAPI 앱 ───────────────────────────────────────────────
 app = FastAPI(title="로컬 Qwen3-TTS VoiceDesign 서버")
