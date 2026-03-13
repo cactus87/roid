@@ -2,8 +2,8 @@
 
 ## 프로젝트 개요
 juhee-bot 포크 → 디스코드 음성채팅방 TTS 봇.
-**현재**: 로컬 Qwen3-TTS-1.7B-VoiceDesign (무료, 로컬 GPU).
-Azure → XTTS-v2 → Qwen3-TTS 순으로 교체됨.
+**현재**: Qwen3-TTS-GGUF (llama.cpp, RTF 0.17~0.20, 무료, 로컬 GPU).
+Azure → XTTS-v2 → Qwen3-TTS(PyTorch) → Qwen3-TTS-GGUF 순으로 교체됨.
 
 ## 아키텍처
 
@@ -26,21 +26,22 @@ Discord 서버
 ```
 
 ## 기술 스택
-- **TTS**: Qwen3-TTS-1.7B-VoiceDesign (`qwen-tts` 패키지)
+- **TTS**: Qwen3-TTS-GGUF (`qwen3_tts_gguf` 패키지, llama.cpp 기반, RTF 0.17~0.20)
 - **TTS 서버**: FastAPI + uvicorn, 포트 5002 (로컬 PC)
-- **출력**: WAV → ffmpeg libopus → OGG Opus
+- **출력**: WAV(24000Hz) → ffmpeg libopus → OGG Opus
 - **봇 프레임워크**: discord.js v14 + @discordjs/voice
 - **DB**: SQLite + Sequelize
 - **언어**: TypeScript ESM (import 시 `.js` 확장자)
-- **Python 환경**: venv (Python 3.12), torch 2.10.0+cu130
+- **Python 환경**: `C:\ai\Qwen3-TTS-GGUF\venv` (Python 3.12, torch 2.10.0+cu128)
+- **자동 시작**: 작업 스케줄러 `roid-tts-server` (로그인 시 자동 실행)
 
 ## 핵심 파일 구조
 ```
 tts-server/
-├── main.py               # FastAPI + Qwen3-TTS 서버
-├── requirements.txt      # Python 의존성
-├── venv/                 # Python 가상환경
-└── .ttsCache/            # OGG 캐시 (SHA256, v2: 접두사)
+├── main.py               # FastAPI + Qwen3-TTS-GGUF 서버
+├── start-server.bat      # 서버 시작 스크립트 (GGUF venv 사용)
+├── register-startup.ps1  # 작업 스케줄러 등록 스크립트
+└── .ttsCache/            # OGG 캐시 (SHA256, v3: 접두사)
 
 juhee-bot/
 ├── app/
@@ -67,7 +68,8 @@ juhee-bot/
 |------|------|------|
 | `VOICE_PRESETS` | `dict[str, str]` | voice_id → 영어 instruct 프롬프트 (16개: 기본 6 + 캐릭터 10) |
 | `PITCH_SEMITONES` | `dict[str, int]` | pitch 이름 → 반음 수 |
-| `tts_model` | `Qwen3TTSModel` | 모델 싱글턴 (서버 시작 시 로드) |
+| `tts_engine` | `TTSEngine` | GGUF 엔진 싱글턴 (`C:\ai\Qwen3-TTS-GGUF\model-design`) |
+| `tts_stream` | `TTSStream` | design() 호출용 스트림 |
 | `_tts_lock` | `asyncio.Lock` | GPU 직렬화용 Lock |
 | `synthesize(request)` | `POST /tts` | TTS 합성 엔드포인트 |
 | `list_voices()` | `GET /voices` | 사용 가능한 voice_id 목록 |
@@ -110,7 +112,10 @@ npm run start          # 빌드 + PM2 시작
 ### TTS 서버 (로컬 PC)
 ```bash
 cd tts-server
-venv\Scripts\python.exe -m uvicorn main:app --host 0.0.0.0 --port 5002
+# GGUF venv 사용 (C:\ai\Qwen3-TTS-GGUF\venv)
+"C:\ai\Qwen3-TTS-GGUF\venv\Scripts\python.exe" -m uvicorn main:app --host 0.0.0.0 --port 5002
+# 또는 배치 파일 실행
+start-server.bat
 ```
 
 ## TTS 큐 시스템 (bot.ts)
@@ -158,7 +163,7 @@ TTS_SERVER_URL=http://<로컬PC공인IP>:5002
 - TypeScript strict, ESM
 - 한국어 주석
 - TTS 클라이언트: `localTTS(text, callback, voice, speed, pitch)`
-- 캐시: SHA256 해시, `.ttsCache/*.ogg`, 캐시 키 접두사 `v2:`
+- 캐시: SHA256 해시, `.ttsCache/*.ogg`, 캐시 키 접두사 `v4:`
 - 에러: try-catch + logger, 콜백에 null 전달
 
 ## 주의사항 (중요!)

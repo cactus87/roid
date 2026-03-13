@@ -42,26 +42,26 @@ VOICE_PRESETS: dict[str, str] = {
     "male_b":   "A relaxed and natural male voice in his 20s, friendly and casual speech style",
     "male_c":   "A deep and mature male voice in his 40s, clear and weighty narration style",
     # 캐릭터 음성
-    "child":        "A cute and innocent child voice around 5-7 years old, high-pitched with a lisp, cheerful and playful tone, slightly clumsy pronunciation",
-    "grandma":      "A warm and gentle elderly woman voice in her 70s, soft and caring tone, slow and deliberate pace, slightly raspy with age",
-    "rocker":       "A raspy and powerful male rock singer voice in his 30s, aggressive and intense tone, raw vocal texture with slight growl, loud and rebellious attitude",
-    "gangster":     "A deep and intimidating male voice in his 40s, sharp and commanding tone, moderate pace with strong emphasis, clear and powerful projection",
-    "otaku":        "A nasally and excitable young male voice in his 20s, fast-paced and enthusiastic, high energy with awkward social tone, nerdy and passionate",
-    "anime_girl":   "A very high-pitched cute female voice in her teens, exaggerated cheerful intonation, sweet and bubbly with dramatic emotional shifts, kawaii style",
-    "anime_boy":    "A bright and confident young male voice in his late teens, heroic and determined tone, energetic with dramatic flair, shounen protagonist style",
-    "game_hero":    "A strong and commanding male voice in his 30s, noble and courageous tone, clear and powerful projection, epic fantasy hero with unwavering resolve",
-    "game_villain":    "A sinister and elegant male voice in his 40s, cold and calculating tone, smooth yet threatening delivery, dark charisma with subtle menace",
-    "narrator":        "A rich and resonant male voice in his 50s, authoritative and captivating storytelling tone, measured pace with dramatic emphasis, documentary narrator style",
+    "child":        "A cute and cheerful child voice around 7 years old, high-pitched and bright tone, playful and innocent speech style",
+    "grandma":      "A warm and gentle elderly woman voice in her 70s, soft and caring tone, slow and deliberate pace, slightly low pitch",
+    "rocker":       "A strong and bold male voice in his 30s, confident and intense tone, powerful projection, rock singer style with clear enunciation",
+    "gangster":     "A deep and firm male voice in his 40s, sharp and commanding tone, moderate pace with strong emphasis, clear and powerful projection",
+    "otaku":        "A slightly high-pitched young male voice in his 20s, fast-paced and enthusiastic, energetic and passionate speech style",
+    "anime_girl":   "A high-pitched cute female voice in her teens, cheerful and sweet intonation, bubbly and expressive tone, bright and lively delivery",
+    "anime_boy":    "A bright and confident young male voice in his late teens, heroic and determined tone, energetic and clear delivery",
+    "game_hero":    "A strong and commanding male voice in his 30s, noble and courageous tone, clear and powerful projection, confident and resolute delivery",
+    "game_villain":    "A low-pitched and elegant male voice in his 40s, cold and calm tone, smooth and controlled delivery, sophisticated and composed",
+    "narrator":        "A rich and resonant male voice in his 50s, authoritative and captivating storytelling tone, measured pace, documentary narrator style",
     # 추가 캐릭터
-    "angry_auntie":    "An aggressive and sharp middle-aged Korean woman in her 50s, loud and scolding tone, fast and nagging speech, high-pitched complaints with strong emphasis",
-    "foreigner":       "A non-native Korean speaker with a strong Southeast Asian accent, broken rhythm, uncertain intonation, friendly but clearly struggling with pronunciation",
-    "robot":           "Monotone, synthetic, robotic voice with no emotional inflection, metallic tint, steady pace, high clarity, non-human delivery with artificial cadence",
-    "human_theater_m": "A warm and emotional male documentary narrator in his 50s, slow and thoughtful pace, deeply empathetic tone, Korean human interest story style with heartfelt gravitas",
-    "human_theater_f": "A warm and gentle female documentary narrator in her 40s, soft and emotional delivery, slow contemplative pace, Korean human interest story style with tender compassion",
-    "starcraft_dragon":"A deep, ancient and commanding dragon voice, slow and majestic delivery, resonant and powerful projection, otherworldly authority with a hint of menace",
-    "homeshopping":    "An enthusiastic and urgent female home shopping host in her 30s, rapid high-energy delivery, dramatic emphasis on deals, bright and persuasive tone",
-    "drill_sergeant":  "A loud and authoritative military drill instructor, sharp staccato delivery, commanding and strict tone, powerful projection with intense discipline",
-    "drunk_boss":      "A cheerful and slightly slurred middle-aged male voice, loose and rambling speech, warm but unfocused delivery, happy-drunk energy with occasional chuckling",
+    "angry_auntie":    "A sharp and stern middle-aged female voice in her 50s, high-pitched and firm tone, fast speaking pace with strong emphasis, scolding speech style",
+    "foreigner":       "A warm and friendly male voice in his 30s with a distinct accent, slightly uneven rhythm, clear but non-native pronunciation",
+    "robot":           "A flat and steady male voice with no emotional inflection, even pace, high clarity, precise and uniform delivery",
+    "human_theater_m": "A warm and emotional male narrator in his 50s, slow and thoughtful pace, empathetic and sincere tone, documentary storytelling style",
+    "human_theater_f": "A warm and gentle female narrator in her 40s, soft and emotional delivery, slow and contemplative pace, sincere storytelling style",
+    "starcraft_dragon":"A deep and commanding male voice in his 50s, slow and majestic delivery, resonant and powerful projection, ancient authority",
+    "homeshopping":    "An enthusiastic and energetic female voice in her 30s, fast speaking pace, bright and persuasive tone, confident product presentation style",
+    "drill_sergeant":  "A firm and authoritative male voice in his 40s, clear and sharp delivery, commanding and strict tone, strong projection with discipline",
+    "drunk_boss":      "A cheerful and relaxed middle-aged male voice in his 40s, slow and casual speech, warm and friendly tone, easygoing delivery",
 }
 
 # 피치: 반음(semitone) 단위
@@ -122,7 +122,7 @@ async def synthesize(request: Request):
         raise HTTPException(status_code=400, detail=f"알 수 없는 pitch: {pitch}")
 
     # 캐시 키
-    cache_key = hashlib.sha256(f"v3:{text}:{voice_id}:{speed}:{pitch}".encode()).hexdigest()
+    cache_key = hashlib.sha256(f"v4:{text}:{voice_id}:{speed}:{pitch}".encode()).hexdigest()
     ogg_path = CACHE_DIR / f"{cache_key}.ogg"
 
     if ogg_path.exists():
@@ -137,16 +137,17 @@ async def synthesize(request: Request):
     voice_seed = hash(voice_id) & 0x7FFFFFFF
 
     config = TTSConfig(
-        temperature=0.3,        # 낮출수록 안정적 (늘어짐/소리지름 방지)
-        sub_temperature=0.3,
-        top_k=15,               # 후보 토큰 제한 → 이상한 음성 억제
-        sub_top_k=15,
-        top_p=0.85,
-        sub_top_p=0.85,
-        repeat_penalty=1.15,    # 반복 패턴 억제
+        temperature=0.7,        # 공식 기본 0.9, 낮출수록 안정적이나 기계적
+        sub_temperature=0.5,    # 낮추면 속도 떨림/전자음 감소
+        top_k=50,               # 공식 기본값
+        sub_top_k=50,
+        top_p=1.0,              # 공식 기본값
+        sub_top_p=1.0,
+        min_p=0.05,             # 저확률 노이즈/전자음 필터링
+        repeat_penalty=1.05,    # 공식 기본값
         seed=voice_seed,
         sub_seed=voice_seed,
-        max_steps=400,
+        max_steps=300,          # 공식 기본값
         streaming=False,
     )
 
