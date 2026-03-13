@@ -1039,10 +1039,12 @@ function parseMessage(messageContent: string): string {
   const truncateToLimit = (text: string) =>
     Array.from(text).slice(0, TTS_LIMIT).join("");
 
+  // 같은 글자 3회 이상 반복 → 최대 2회로 제한 (TTS 모델 발산/소리지름 방지)
+  messageContent = messageContent.replace(/(.)\1{2,}/g, "$1$1");
+
   // 빠른 단축어 처리
   if (messageContent == "ㅋ") return "킥";
   else if (messageContent == "ㅋㅋ") return "크크";
-  else if (messageContent == "ㅋㅋㅋ") return "크크크";
   else if (messageContent == "ㅇㅇ") return "응응";
   else if (messageContent == "ㅎㅇ") return "하이";
   else if (messageContent == "ㅂㅇ") return "바이";
