@@ -1,28 +1,35 @@
 """
-로컬 Qwen3-TTS VoiceDesign TTS 서버
-FastAPI + Qwen3-TTS-1.7B-VoiceDesign + RTX GPU → OGG Opus 출력
-speaker_wav 없이 텍스트 설명만으로 음성 생성
+로컬 Qwen3-TTS GGUF TTS 서버
+FastAPI + Qwen3-TTS-GGUF (llama.cpp) + RTX GPU → OGG Opus 출력
 """
 
 import os
+import sys
 import hashlib
 import asyncio
 from pathlib import Path
 
-import torch
-import soundfile as sf
 import numpy as np
+import soundfile as sf
 import ffmpeg
 
-# ffmpeg 실행 파일 경로 명시 (PATH에 없는 경우)
-os.environ.setdefault("PATH", "")
-os.environ["PATH"] = r"C:\base_app\FFmpeg\bin" + os.pathsep + os.environ["PATH"]
-from fastapi import FastAPI, Form, HTTPException, Request
+# ffmpeg 실행 파일 경로 명시
+os.environ["PATH"] = r"C:\base_app\FFmpeg\bin" + os.pathsep + os.environ.get("PATH", "")
+
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse
-from qwen_tts import Qwen3TTSModel
+
+# GGUF 추론 엔진 (Qwen3-TTS-GGUF)
+GGUF_PROJECT = Path(r"C:\ai\Qwen3-TTS-GGUF")
+sys.path.insert(0, str(GGUF_PROJECT))
+# GGUF venv의 site-packages 추가
+sys.path.insert(0, str(GGUF_PROJECT / "venv" / "Lib" / "site-packages"))
+
+os.chdir(GGUF_PROJECT)  # TTSEngine이 CWD 기준 model_dir 사용
+from qwen3_tts_gguf.inference import TTSEngine, TTSConfig
 
 # ── 초기 설정 ────────────────────────────────────────────────
-CACHE_DIR = Path(".ttsCache")
+CACHE_DIR = Path(r"C:\ai\tts-bot\tts-server\.ttsCache")
 CACHE_DIR.mkdir(exist_ok=True)
 
 # 음성 프리셋: voice_id → VoiceDesign instruct 프롬프트
@@ -43,8 +50,18 @@ VOICE_PRESETS: dict[str, str] = {
     "anime_girl":   "A very high-pitched cute female voice in her teens, exaggerated cheerful intonation, sweet and bubbly with dramatic emotional shifts, kawaii style",
     "anime_boy":    "A bright and confident young male voice in his late teens, heroic and determined tone, energetic with dramatic flair, shounen protagonist style",
     "game_hero":    "A strong and commanding male voice in his 30s, noble and courageous tone, clear and powerful projection, epic fantasy hero with unwavering resolve",
-    "game_villain": "A sinister and elegant male voice in his 40s, cold and calculating tone, smooth yet threatening delivery, dark charisma with subtle menace",
-    "narrator":     "A rich and resonant male voice in his 50s, authoritative and captivating storytelling tone, measured pace with dramatic emphasis, documentary narrator style",
+    "game_villain":    "A sinister and elegant male voice in his 40s, cold and calculating tone, smooth yet threatening delivery, dark charisma with subtle menace",
+    "narrator":        "A rich and resonant male voice in his 50s, authoritative and captivating storytelling tone, measured pace with dramatic emphasis, documentary narrator style",
+    # 추가 캐릭터
+    "angry_auntie":    "An aggressive and sharp middle-aged Korean woman in her 50s, loud and scolding tone, fast and nagging speech, high-pitched complaints with strong emphasis",
+    "foreigner":       "A non-native Korean speaker with a strong Southeast Asian accent, broken rhythm, uncertain intonation, friendly but clearly struggling with pronunciation",
+    "robot":           "Monotone, synthetic, robotic voice with no emotional inflection, metallic tint, steady pace, high clarity, non-human delivery with artificial cadence",
+    "human_theater_m": "A warm and emotional male documentary narrator in his 50s, slow and thoughtful pace, deeply empathetic tone, Korean human interest story style with heartfelt gravitas",
+    "human_theater_f": "A warm and gentle female documentary narrator in her 40s, soft and emotional delivery, slow contemplative pace, Korean human interest story style with tender compassion",
+    "starcraft_dragon":"A deep, ancient and commanding dragon voice, slow and majestic delivery, resonant and powerful projection, otherworldly authority with a hint of menace",
+    "homeshopping":    "An enthusiastic and urgent female home shopping host in her 30s, rapid high-energy delivery, dramatic emphasis on deals, bright and persuasive tone",
+    "drill_sergeant":  "A loud and authoritative military drill instructor, sharp staccato delivery, commanding and strict tone, powerful projection with intense discipline",
+    "drunk_boss":      "A cheerful and slightly slurred middle-aged male voice, loose and rambling speech, warm but unfocused delivery, happy-drunk energy with occasional chuckling",
 }
 
 # 피치: 반음(semitone) 단위
@@ -63,26 +80,18 @@ def speed_to_instruct(speed: int) -> str:
         return ", slow speaking pace"
     if speed >= 70:
         return ", fast speaking pace"
-    return ""  # 기본 속도
+    return ""
 
 
-# ── 모델 로드 ────────────────────────────────────────────────
-print("🔄 Qwen3-TTS VoiceDesign 모델 로드 중... (첫 실행 시 HuggingFace에서 자동 다운로드)")
-device = "cuda" if torch.cuda.is_available() else "cpu"
-print(f"🖥️  장치: {device}")
-
-tts_model = Qwen3TTSModel.from_pretrained(
-    "Qwen/Qwen3-TTS-12Hz-1.7B-VoiceDesign",
-    device_map="cuda" if torch.cuda.is_available() else "cpu",
-    dtype=torch.bfloat16,
-)
-print("✅ 모델 로드 완료")
-
+# ── GGUF 엔진 로드 ───────────────────────────────────────────
+print("🔄 Qwen3-TTS GGUF 엔진 초기화 중...")
+tts_engine = TTSEngine(model_dir="model-design", onnx_provider="CUDA", verbose=True)
+print("✅ GGUF 엔진 로드 완료")
 
 # ── FastAPI 앱 ───────────────────────────────────────────────
-app = FastAPI(title="로컬 Qwen3-TTS VoiceDesign 서버")
+app = FastAPI(title="로컬 Qwen3-TTS GGUF 서버")
 
-# 동시 요청 직렬화용 Lock (GPU VRAM 경합 방지)
+# 동시 요청 직렬화용 Lock
 _tts_lock = asyncio.Lock()
 
 
@@ -94,11 +103,11 @@ async def synthesize(request: Request):
     Parameters
     ----------
     text     : 변환할 텍스트
-    voice_id : VOICE_PRESETS 키 (female_a / male_a 등)
-    speed    : 0~100 (0=느림, 100=빠름) → VoiceDesign instruct 접미사로 변환
+    voice_id : VOICE_PRESETS 키
+    speed    : 0~100
     pitch    : x-low / low / medium / high / x-high
     """
-    # raw bytes로 읽어 UTF-8 강제 디코딩 (uvicorn 인코딩 오류 방지)
+    # raw bytes로 읽어 UTF-8 강제 디코딩
     raw = await request.body()
     from urllib.parse import parse_qs
     params = parse_qs(raw.decode("utf-8"))
@@ -107,14 +116,13 @@ async def synthesize(request: Request):
     speed    = int(params.get("speed", ["30"])[0])
     pitch    = params.get("pitch",    ["medium"])[0]
 
-    # 유효성 검사
     if voice_id not in VOICE_PRESETS:
-        raise HTTPException(status_code=400, detail=f"알 수 없는 voice_id: {voice_id}. 사용 가능: {list(VOICE_PRESETS.keys())}")
+        raise HTTPException(status_code=400, detail=f"알 수 없는 voice_id: {voice_id}")
     if pitch not in PITCH_SEMITONES:
         raise HTTPException(status_code=400, detail=f"알 수 없는 pitch: {pitch}")
 
-    # 캐시 키 계산 (v2: XTTS 캐시와 분리)
-    cache_key = hashlib.sha256(f"v2:{text}:{voice_id}:{speed}:{pitch}".encode()).hexdigest()
+    # 캐시 키
+    cache_key = hashlib.sha256(f"v3:{text}:{voice_id}:{speed}:{pitch}".encode()).hexdigest()
     ogg_path = CACHE_DIR / f"{cache_key}.ogg"
 
     if ogg_path.exists():
@@ -122,26 +130,35 @@ async def synthesize(request: Request):
 
     wav_path = CACHE_DIR / f"{cache_key}.wav"
 
-    # instruct 프롬프트 구성 (음성 프리셋 + 속도 접미사)
+    # instruct 프롬프트 구성
     instruct = VOICE_PRESETS[voice_id] + speed_to_instruct(speed)
 
     # voice_id별 고정 시드 → 일관된 음색 유지
-    voice_seed = hash(voice_id) & 0x7FFFFFFF  # voice_id마다 고유 시드
+    voice_seed = hash(voice_id) & 0x7FFFFFFF
 
-    # GPU 직렬화: 동시에 여러 요청이 와도 순차 처리 (동기 호출)
+    config = TTSConfig(
+        temperature=0.3,        # 낮출수록 안정적 (늘어짐/소리지름 방지)
+        sub_temperature=0.3,
+        top_k=15,               # 후보 토큰 제한 → 이상한 음성 억제
+        sub_top_k=15,
+        top_p=0.85,
+        sub_top_p=0.85,
+        repeat_penalty=1.15,    # 반복 패턴 억제
+        seed=voice_seed,
+        sub_seed=voice_seed,
+        max_steps=400,
+        streaming=False,
+    )
+
+    # GPU 직렬화 (요청마다 새 스트림 → 동시 요청 간 상태 충돌 방지)
     async with _tts_lock:
-        torch.manual_seed(voice_seed)
-        torch.cuda.manual_seed(voice_seed)
-        result = tts_model.generate_voice_design(
-            text=text,
-            language="Auto",
-            instruct=instruct,
-        )
+        stream = tts_engine.create_stream()
+        result = stream.design(text=text, instruct=instruct, config=config)
+        stream.join()
 
-    wavs, sr = result  # wavs: List[np.ndarray], sr: int
-    wav_np = wavs[0].astype(np.float32)  # 첫 번째 결과, 1D mono
-
-    # soundfile로 임시 WAV 저장
+    # WAV 저장 (GGUF 출력 샘플레이트 고정 24000Hz)
+    wav_np = result.audio.astype(np.float32)
+    sr = 24000
     sf.write(str(wav_path), wav_np, sr, subtype='PCM_16')
 
     # ffmpeg: WAV → OGG Opus + pitch shift
@@ -149,7 +166,6 @@ async def synthesize(request: Request):
     try:
         stream = ffmpeg.input(str(wav_path)).audio
         if semitones != 0:
-            # asetrate로 pitch shift → aresample로 48kHz 복구 (sr은 모델 출력 샘플레이트)
             shifted_rate = int(sr * (2 ** (semitones / 12)))
             stream = stream.filter("asetrate", shifted_rate).filter("aresample", 48000)
         stream.output(str(ogg_path), codec="libopus").run(overwrite_output=True, quiet=True)
@@ -162,17 +178,12 @@ async def synthesize(request: Request):
 
 @app.get("/voices")
 async def list_voices():
-    """사용 가능한 voice_id 목록 반환"""
-    return {
-        "voices": list(VOICE_PRESETS.keys()),
-        "pitch_options": list(PITCH_SEMITONES.keys()),
-    }
+    return {"voices": list(VOICE_PRESETS.keys()), "pitch_options": list(PITCH_SEMITONES.keys())}
 
 
 @app.get("/health")
 async def health():
-    """헬스 체크"""
-    return {"status": "ok", "device": device}
+    return {"status": "ok", "engine": "gguf"}
 
 
 if __name__ == "__main__":

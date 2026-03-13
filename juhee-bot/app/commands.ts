@@ -51,6 +51,15 @@ const Commands: SlashCommandBuilder | Omit<SlashCommandBuilder, "addSubcommand" 
           { name: '🛡️ 게임 영웅', value: 'game_hero' },
           { name: '🦹 게임 악당', value: 'game_villain' },
           { name: '📖 나레이터', value: 'narrator' },
+          { name: '😤 사나운 아줌마', value: 'angry_auntie' },
+          { name: '🌏 외노자', value: 'foreigner' },
+          { name: '🤖 로봇', value: 'robot' },
+          { name: '🎬 인간극장 (남)', value: 'human_theater_m' },
+          { name: '🎬 인간극장 (여)', value: 'human_theater_f' },
+          { name: '🐉 드라곤', value: 'starcraft_dragon' },
+          { name: '📺 홈쇼핑', value: 'homeshopping' },
+          { name: '💂 군대 교관', value: 'drill_sergeant' },
+          { name: '🍺 취한 부장님', value: 'drunk_boss' },
         )
         .setRequired(true)),
 

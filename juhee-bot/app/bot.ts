@@ -506,6 +506,10 @@ client.on(Events.InteractionCreate, async (interaction) => {
           gangster: "😎 조폭", otaku: "🤓 오타쿠", anime_girl: "🌸 애니 소녀",
           anime_boy: "⚔️ 애니 소년", game_hero: "🛡️ 게임 영웅",
           game_villain: "🦹 게임 악당", narrator: "📖 나레이터",
+          angry_auntie: "😤 사나운 아줌마", foreigner: "🌏 외노자", robot: "🤖 로봇",
+          human_theater_m: "🎬 인간극장 (남)", human_theater_f: "🎬 인간극장 (여)",
+          starcraft_dragon: "🐉 드라곤", homeshopping: "📺 홈쇼핑",
+          drill_sergeant: "💂 군대 교관", drunk_boss: "🍺 취한 부장님",
         };
         const ttsName: string = voiceNames[ttsVoice] ?? "여성 A (차분)";
 
